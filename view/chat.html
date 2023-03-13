@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Woonglife's chat webapp</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+    <link rel="stylesheet" href="/view/style.css">
+
+    <script src="https://code.jquery.com/jquery-3.6.0.js"
+        integrity="sha256-H+K7U5CnXl1h5ywQfKtSj8PCmoN9aaq30gDh27Xc0jk=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+        crossorigin="anonymous"></script>
+
+    <link rel="apple-touch-icon" sizes="57x57" href="/view/favicon/apple-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="/view/favicon/apple-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="/view/favicon/apple-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="/view/favicon/apple-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="/view/favicon/apple-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/view/favicon/apple-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/view/favicon/apple-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/view/favicon/apple-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/view/favicon/apple-icon-180x180.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/view/favicon/android-icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/view/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/view/favicon/favicon-96x96.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/view/favicon/favicon-16x16.png">
+    <link rel="manifest" href="/view/favicon/manifest.json">
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="msapplication-TileImage" content="/view/favicon/ms-icon-144x144.png">
+    <meta name="theme-color" content="#ffffff">
+</head>
+
+<body>
+    <div id="content">
+        <div id="title">
+            <p id="main-title">Hello {{index . "user"}}.</p>
+            <p id="sub-title">Feel free to chat.</p>
+        </div>
+
+        <br>
+
+        <div class="shadow-xll p-3 mb-5 bg-body rounded" id="result"></div>
+
+        <div id="post-message">
+            <div class="visible">
+                <div class="shadow-xl p-3 mb-5 bg-body rounded">
+                    <div class="input-group">
+                        <input class="form-control" type="text" id="chat-message"
+                            placeholder="Press Enter for send message.">
+                        <button class="btn btn-blue" type="button" name="submit-btn" id="submit-btn">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            var loc = window.location;
+            var uri = 'ws:';
+
+            if (loc.protocol === 'https:') {
+                uri = 'wss:';
+            }
+            uri += '//' + loc.host;
+            uri += '/server';
+            ws = new WebSocket(uri)
+
+            ws.onopen = (event) => {
+                let sendData = { event: "OPEN" }
+                ws.send(JSON.stringify(sendData));
+            }
+
+            ws.onmessage = (event) => {
+                let recData = JSON.parse(event.data);
+
+                // 내용을 p tag로 추가한다.
+                let outArea = document.getElementById('result');
+                let newTagP = document.createElement('p');
+                let newTagSpan = document.createElement('span');
+
+                if (recData.Event === "OPEN" || recData.Event === "CLOSE") {
+                    newTagP.setAttribute('class', 'p-alert');
+                    newTagSpan.setAttribute('class', 'span-alert');
+                } else if (recData.owner === true) {
+                    newTagP.setAttribute('class', 'p-me preserve-whitespace');
+                    newTagSpan.setAttribute('class', 'span-me');
+                } else {
+                    newTagP.setAttribute('class', 'p-you preserve-whitespace');
+                    newTagSpan.setAttribute('class', 'span-you');
+
+                    // // 이전 글이 동일인물이면 username 안넣기
+                    // let resultID = document.getElementById("result")
+                    // let lastResultChild = resultID.lastChild
+                    // if (lastResultChild.firstChild.className == "user-name" && lastResultChild.firstChild.textContent === recData.User) {
+                    //     console.log(lastResultChild.firstChild.className);
+                    //     console.log(lastResultChild.firstChild.textContent);
+                    //     let newTagSpanUser = document.createElement('span')
+                    //     newTagSpanUser.setAttribute('class', 'user-name')
+                    //     newTagSpanUser.innerText = leadingSpaces(recData.User.length)
+                    //     newTagP.appendChild(newTagSpanUser)
+                    // }
+                    // else {
+                    //     let newTagSpanUser = document.createElement('span')
+                    //     newTagSpanUser.setAttribute('class', 'user-name')
+                    //     newTagSpanUser.innerText = recData.User
+                    //     newTagP.appendChild(newTagSpanUser)
+                    // }
+
+                    let newTagSpanUser = document.createElement('span')
+                    newTagSpanUser.setAttribute('class', 'user-name')
+                    newTagSpanUser.innerText = recData.User
+                    newTagP.appendChild(newTagSpanUser)
+
+                    let newTagSpanSpace = document.createElement('span')
+                    newTagSpanSpace.setAttribute('class', 'user-name-space')
+                    newTagSpanSpace.innerText = " "
+                    newTagP.appendChild(newTagSpanSpace)
+                }
+
+                // url 이면 link 건다.
+                if (validURL(recData.message)) {
+                    if (!validProtocol(recData.message)) {
+                        //newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"https://"+recData.message+"\" target=\"_blank\">"+recData.message+"</a>"
+                        newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"https://" + recData.message + "\" target=\"_blank\">" + recData.message + "</a>"
+                    } else {
+                        newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"" + recData.message + "\" target=\"_blank\">" + recData.message + "</a>"
+                    }
+                }
+                else {
+                    newTagSpan.textContent = recData.message;
+                }
+                //newTagSpan.innerHTML = recData.message;
+
+                newTagP.appendChild(newTagSpan)
+                outArea.appendChild(newTagP)
+
+                const vScrollDown = $("#result").prop('scrollHeight');
+                $("#result").scrollTop(vScrollDown);
+                if (recData.Event === "MESSAGE") {
+                    beep();
+                }
+            }
+
+            ws.addEventListener("close", (event) => {
+                let sendData = { event: "CLOSE" }
+                ws.send(JSON.stringify(sendData))
+            });
+
+            $("#chat-message").on("keyup", function () {
+                if (window.event.keyCode == 13) {
+                    $("#submit-btn").click();
+                }
+            });
+
+            $("#submit-btn").on("click", function () {
+                var msg = $("#chat-message").val();
+                let tmpmsg = msg
+                if (msg == null || msg == "" || tmpmsg.trim() == "") {
+                    return false
+                }
+                let sendData = { event: "MESSAGE", user: "", message: msg };
+                ws.send(JSON.stringify(sendData));
+                $("#chat-message").val("");
+            });
+
+            function beep() {
+                var snd = new Audio("/sound/alert.mp3");
+                snd.play();
+            }
+
+            function validURL(str) {
+                var pattern = new RegExp('^(https?:\\/\\/)?' + // protocol
+                    '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|' + // domain name
+                    '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
+                    '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*' + // port and path
+                    '(\\?[;&a-z\\d%_.~+=-]*)?' + // query string
+                    '(\\#[-a-z\\d_]*)?$', 'i'); // fragment locator
+                return !!pattern.test(str);
+            }
+            function validProtocol(str) {
+                var pattern = /^http[s]?\:\/\//i;
+                return !!pattern.test(str);
+            }
+
+            function leadingSpaces(digits) {
+                var space = '';
+
+                if (1 < digits) {
+                    for (var i = 0; i < digits - 1; i++)
+                        space += ' ';
+                }
+                return space;
+            }
+        </script>
+    </div>
+</body>
+
+</html>
