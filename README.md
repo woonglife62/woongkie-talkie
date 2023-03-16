@@ -1,2 +1,13 @@
 # woongkie-talkie
-간단한 채팅 프로그램
+Simple Chat Program
+
+
+## start redis using docker-compose
+```
+sudo docker-compose up --build -d
+```
+
+## start chat server
+```
+go run . serve
+```

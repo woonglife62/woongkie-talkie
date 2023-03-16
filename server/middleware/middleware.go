@@ -11,4 +11,7 @@ func Middleware(e *echo.Echo) {
 
 	// auth
 	auth(e)
+
+	// render
+	render(e)
 }

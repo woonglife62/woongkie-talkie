@@ -1,15 +1,29 @@
-package router
+package handler
 
 import (
 	"fmt"
 	"log"
 	"strings"
 
+	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/woonglife62/woongkie-talkie/redisclient"
+	redis "github.com/woonglife62/woongkie-talkie/pkg/redis"
 )
 
-func msgReceiver(c echo.Context) error {
+var (
+	upgrader  = websocket.Upgrader{}             // 웹소캣을 생성함.
+	clients   = make(map[*websocket.Conn]string) // 접속중인 client 관리
+	broadcast = make(chan Message)               // channel 로 개방된 소캣에 전달 할 message
+)
+
+type Message struct {
+	Event   string `json:"Event"` // entrance or message
+	User    string `json:"User"`
+	Message string `json:"message"`
+	Owner   bool   `json:"owner"`
+}
+
+func MsgReceiver(c echo.Context) error {
 	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 	if err != nil {
 		return err
@@ -19,7 +33,7 @@ func msgReceiver(c echo.Context) error {
 	clientNm, _, _ := c.Request().BasicAuth()
 	clients[ws] = clientNm // client의 접속으로 열린 웹소켓 저장
 
-	reply, err := redisclient.ListAllLrange(c.Path())
+	reply, err := redis.ListAllLrange(c.Path())
 	if err == nil {
 		for pastMsg := range reply {
 			var tmpMsg Message
@@ -57,7 +71,7 @@ func msgReceiver(c echo.Context) error {
 
 		// 입력한 글 redis에 저장
 		if msg.Event != "OPEN" {
-			_, err = redisclient.ListRpush(c.Path(), fmt.Sprintf("%s:%s", msg.User, msg.Message))
+			_, err = redis.ListRpush(c.Path(), fmt.Sprintf("%s:%s", msg.User, msg.Message))
 			if err != nil {
 				log.Print(err)
 			}
@@ -96,7 +110,6 @@ func msgDeliverer() {
 	}
 }
 
-func serverRouter(e *echo.Echo) {
-	e.GET("/server", msgReceiver)
+func init() {
 	go msgDeliverer()
 }
