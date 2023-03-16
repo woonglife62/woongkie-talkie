@@ -1,17 +1,6 @@
 # woongkie-talkie
 Simple Chat Program
 
-
-## start redis using docker-compose
-```
-sudo docker-compose up --build -d
-```
-
-## start chat server
-```
-go run . serve
-```
-
 ## start chat server using docker-compose
 #### 1. Using Image Lightweight
 
@@ -39,3 +28,11 @@ docker-compose -f docker-compose.integration.yml up --build -d
 ```
 docker-compose -f docker-compose.integration.yml down
 ```
+
+
+
+## if you want to starting chat server for running test
+```
+go run . serve
+```
+Please run redis independently.
