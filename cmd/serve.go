@@ -16,7 +16,7 @@ var serveCmd = &cobra.Command{
 
 		router.Router(e)
 
-		e.Logger.Fatal(e.Start("localhost:8080"))
+		e.Logger.Fatal(e.Start(":8080"))
 	},
 }
 

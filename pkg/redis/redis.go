@@ -8,7 +8,7 @@ import (
 )
 
 func connection() redis.Conn {
-	c, err := redis.Dial("tcp", ":6379")
+	c, err := redis.Dial("tcp", "redis:6379")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
