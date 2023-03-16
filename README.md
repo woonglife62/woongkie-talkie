@@ -13,7 +13,8 @@ go run . serve
 ```
 
 ## start chat server using docker-compose
-#### 1
+#### 1. Using Image Lightweight
+
 - start up
 ```
 sudo docker build . -f Dockerfile.builder -t builder
@@ -28,7 +29,7 @@ docker-compose up --build -d
 docker-compose down
 ```
 
-#### 2
+#### 2. a simple way of running service
 - start up
 ```
 docker-compose -f docker-compose.integration.yml up --build -d
