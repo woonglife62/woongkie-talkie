@@ -13,6 +13,7 @@ go run . serve
 ```
 
 ## start chat server using docker-compose
+#### 1
 - start up
 ```
 sudo docker build . -f Dockerfile.builder -t builder
@@ -25,4 +26,15 @@ docker-compose up --build -d
 - shut down
 ```
 docker-compose down
+```
+
+#### 2
+- start up
+```
+docker-compose -f docker-compose.integration.yml up --build -d
+```
+
+- shut down
+```
+docker-compose -f docker-compose.integration.yml down
 ```
