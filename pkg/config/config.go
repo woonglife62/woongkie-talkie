@@ -50,6 +50,7 @@ func init() {
 		log.Panic(err)
 	}
 
+	// init logger
 	if Config.IsDev == "DEV" || Config.IsDev == "dev" || Config.IsDev == "develop" {
 		logger.Initialize(true)
 	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" {
