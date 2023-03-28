@@ -9,8 +9,10 @@ import (
 )
 
 type ChatMessage struct {
-	User    string `bson:"User,omitempty"`
-	Message string `bson:"Message,omitempty"`
+	Event   string `json:"Event,omitempty" bson:"Event,omitempty"` // entrance or message
+	User    string `json:"User" bson:"User"`
+	Message string `json:"message" bson:"message"`
+	Owner   bool   `json:"owner,omitempty" bson:"owner,omitempty"`
 }
 
 type Chat struct {
