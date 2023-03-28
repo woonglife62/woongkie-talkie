@@ -2,13 +2,27 @@
 version: '3.7'
 
 services:
-  woongkie-talkie:
-    image: woongkie-talkie:latest
-    command: /woongkie-talkie serve
-    container_name: woongkie-talkie
-    hostname: woongkie-talkie
+  # woongkie-talkie:
+  #   image: woongkie-talkie:latest
+  #   command: /woongkie-talkie serve
+  #   container_name: woongkie-talkie
+  #   hostname: woongkie-talkie
+  #   ports:
+  #     - 8080:8080
+
+  mongodb:
+    image: mongo
+    container_name: mongodb
+    hostname: mongodb
+    restart: always
     ports:
-      - 8080:8080
+      - 27017:27017
+    volumes:
+      - ./mongodb:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=1234 
+      - MONGO_INITDB_DATABASE=woongkietalkie
 
   redis:
     image: redis:alpine

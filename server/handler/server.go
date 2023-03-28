@@ -3,25 +3,17 @@ package handler
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	redis "github.com/woonglife62/woongkie-talkie/pkg/redis"
+	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 )
 
 var (
 	upgrader  = websocket.Upgrader{}             // 웹소캣을 생성함.
 	clients   = make(map[*websocket.Conn]string) // 접속중인 client 관리
-	broadcast = make(chan Message)               // channel 로 개방된 소캣에 전달 할 message
+	broadcast = make(chan mongodb.ChatMessage)   // channel 로 개방된 소캣에 전달 할 message
 )
-
-type Message struct {
-	Event   string `json:"Event"` // entrance or message
-	User    string `json:"User"`
-	Message string `json:"message"`
-	Owner   bool   `json:"owner"`
-}
 
 func MsgReceiver(c echo.Context) error {
 	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
@@ -33,23 +25,18 @@ func MsgReceiver(c echo.Context) error {
 	clientNm, _, _ := c.Request().BasicAuth()
 	clients[ws] = clientNm // client의 접속으로 열린 웹소켓 저장
 
-	reply, err := redis.ListAllLrange(c.Path())
+	chatList, err := mongodb.FindChat()
 	if err == nil {
-		for pastMsg := range reply {
-			var tmpMsg Message
-			pastMsgSlice := strings.Split(reply[pastMsg], ":")
-			tmpMsg.User = pastMsgSlice[0]
-			// fmt.Println(pastMsgSlice[0], len(pastMsgSlice[0]))
-			// fmt.Println(clientNm, len(clientNm))
+		for _, pastChat := range chatList {
+			var tmpMsg mongodb.ChatMessage
+			tmpMsg.User = pastChat.User
 
-			tmpMsg.Message = reply[pastMsg][len(pastMsgSlice[0])+1:]
+			tmpMsg.Message = pastChat.Message
 
-			if pastMsgSlice[0] == clientNm {
+			if pastChat.User == clientNm {
 				tmpMsg.Owner = true
-				//tmpMsg.Message = reply[pastMsg][len(pastMsgSlice[0])+1:]
 			} else {
 				tmpMsg.Owner = false
-				//tmpMsg.Message = pastMsgSlice[0] + " : " + reply[pastMsg][len(pastMsgSlice[0])+1:]
 			}
 			tmpMsg.Event = "CHATLOG"
 			ws.WriteJSON(&tmpMsg)
@@ -57,7 +44,7 @@ func MsgReceiver(c echo.Context) error {
 	}
 
 	for {
-		var msg Message
+		var msg mongodb.ChatMessage
 		err := ws.ReadJSON(&msg)
 		if err != nil {
 			log.Printf("error1: %v", err)
@@ -69,9 +56,13 @@ func MsgReceiver(c echo.Context) error {
 		}
 		msg.User = clientNm
 
-		// 입력한 글 redis에 저장
+		// 입력한 글 mongoDB 에 저장
 		if msg.Event != "OPEN" {
-			_, err = redis.ListRpush(c.Path(), fmt.Sprintf("%s:%s", msg.User, msg.Message))
+			chatMessage := mongodb.ChatMessage{
+				User:    msg.User,
+				Message: msg.Message,
+			}
+			err = mongodb.InsertChat(chatMessage)
 			if err != nil {
 				log.Print(err)
 			}
@@ -93,7 +84,6 @@ func msgDeliverer() {
 				msg.Owner = true
 			} else {
 				msg.Owner = false
-				// msg.Message = msg.User + " : " + msgFulltxt
 			}
 			if msg.Event == "OPEN" {
 				msg.Message = fmt.Sprintf("---- %s님이 입장하셨습니다. ----", msg.User)

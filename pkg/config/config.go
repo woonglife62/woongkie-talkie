@@ -16,7 +16,17 @@ type config struct {
 	IsDev string `env:"IS_DEV" validate:"required"`
 }
 
+// mongoDB config
+type dbConfig struct {
+	URI      string `env:"MONGODB_URI" validate:"required"`
+	User     string `env:"MONGODB_USER" validate:"required"`
+	Password string `env:"MONGODB_PASSWORD" validate:"required"`
+	Database string `env:"MONGODB_DATABASE" validate:"required"`
+}
+
 var Config = config{}
+
+var DBConfig = dbConfig{}
 
 func init() {
 
@@ -50,12 +60,21 @@ func init() {
 		log.Panic(err)
 	}
 
+	// init logger
 	if Config.IsDev == "DEV" || Config.IsDev == "dev" || Config.IsDev == "develop" {
 		logger.Initialize(true)
 	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" {
 		logger.Initialize(false)
 	} else {
 		log.Panic("IS_DEV value must be filled.")
+	}
+
+	// config load & validate
+	if err := configor.Load(&DBConfig); err != nil {
+		log.Panic(err)
+	}
+	if err = validate.Struct(DBConfig); err != nil {
+		log.Panic(err)
 	}
 
 }
