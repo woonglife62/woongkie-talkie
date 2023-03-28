@@ -2,6 +2,31 @@
 version: '3.7'
 
 services:
+  mongodb:
+    image: mongo
+    container_name: mongodb
+    hostname: mongodb
+    restart: always
+    ports:
+      - 27017:27017
+    # volumes:
+    #   - ./mongodb:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=1234 
+      - MONGO_INITDB_DATABASE=woongkietalkie
+      
+  # redis:
+  #   image: redis:alpine
+  #   command: redis-server --port 6379
+  #   container_name: redis
+  #   hostname: redis
+  #   labels:
+  #     - "name=redis"
+  #     - "mode=standalone"
+  #   ports:
+  #     - 6379:6379
+
   woongkie-talkie:
     # image: woongkie-talkie:latest
     build:
@@ -12,31 +37,11 @@ services:
     hostname: woongkie-talkie
     ports:
       - 8080:8080
-
-  mongodb:
-    image: mongo
-    container_name: mongodb
-    hostname: mongodb
-    restart: always
-    ports:
-      - 27017:27017
-    volumes:
-      - ./mongodb:/data/db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=root
-      - MONGO_INITDB_ROOT_PASSWORD=1234 
-      - MONGO_INITDB_DATABASE=woongkietalkie
-      
-  redis:
-    image: redis:alpine
-    command: redis-server --port 6379
-    container_name: redis
-    hostname: redis
-    labels:
-      - "name=redis"
-      - "mode=standalone"
-    ports:
-      - 6379:6379
+    links:
+      - mongodb:mongodb
+    depends_on:
+      - mongodb
+      # - redis
 
 networks:
   bridge:
