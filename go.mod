@@ -3,7 +3,6 @@ module github.com/woonglife62/woongkie-talkie
 go 1.20
 
 require (
-	github.com/gomodule/redigo v1.8.9
 	github.com/gorilla/websocket v1.5.0
 	github.com/jinzhu/configor v1.2.1
 	github.com/joho/godotenv v1.5.1
