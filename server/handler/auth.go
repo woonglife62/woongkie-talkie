@@ -1,0 +1,108 @@
+package handler
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/labstack/echo/v4"
+	"github.com/woonglife62/woongkie-talkie/pkg/config"
+	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+)
+
+type RegisterRequest struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AuthResponse struct {
+	Token string       `json:"token"`
+	User  mongodb.User `json:"user"`
+}
+
+func RegisterHandler(c echo.Context) error {
+	var req RegisterRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
+	}
+
+	if len(req.Username) < 3 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상이어야 합니다"})
+	}
+	if len(req.Password) < 6 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 6자 이상이어야 합니다"})
+	}
+
+	displayName := req.DisplayName
+	if displayName == "" {
+		displayName = req.Username
+	}
+
+	user, err := mongodb.CreateUser(req.Username, req.Password, displayName)
+	if err != nil {
+		return c.JSON(http.StatusConflict, map[string]string{"error": "이미 존재하는 사용자 이름입니다"})
+	}
+
+	token, err := generateToken(user.Username)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
+	}
+
+	return c.JSON(http.StatusCreated, AuthResponse{Token: token, User: *user})
+}
+
+func LoginHandler(c echo.Context) error {
+	var req LoginRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
+	}
+
+	user, err := mongodb.FindUserByUsername(req.Username)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자 이름 또는 비밀번호가 올바르지 않습니다"})
+	}
+
+	if !mongodb.CheckPassword(user, req.Password) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자 이름 또는 비밀번호가 올바르지 않습니다"})
+	}
+
+	token, err := generateToken(user.Username)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
+	}
+
+	return c.JSON(http.StatusOK, AuthResponse{Token: token, User: *user})
+}
+
+func MeHandler(c echo.Context) error {
+	username := GetUsername(c)
+
+	user, err := mongodb.FindUserByUsername(username)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "사용자를 찾을 수 없습니다"})
+	}
+
+	return c.JSON(http.StatusOK, user)
+}
+
+func generateToken(username string) (string, error) {
+	expiry, err := time.ParseDuration(config.JWTConfig.Expiry)
+	if err != nil {
+		expiry = 24 * time.Hour
+	}
+
+	claims := jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(expiry).Unix(),
+		"iat":      time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.JWTConfig.Secret))
+}

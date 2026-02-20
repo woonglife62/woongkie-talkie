@@ -10,7 +10,7 @@ func Middleware(e *echo.Echo) {
 	e.Use(echoMiddle.Recover())
 
 	// auth
-	auth(e)
+	jwtAuth(e)
 
 	// render
 	render(e)

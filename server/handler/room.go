@@ -37,7 +37,7 @@ func CreateRoomHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 이름은 필수입니다"})
 	}
 
-	username, _, _ := c.Request().BasicAuth()
+	username := GetUsername(c)
 
 	room := mongodb.Room{
 		Name:        req.Name,
@@ -98,7 +98,7 @@ func GetRoomHandler(c echo.Context) error {
 // DELETE /rooms/:id
 func DeleteRoomHandler(c echo.Context) error {
 	id := c.Param("id")
-	username, _, _ := c.Request().BasicAuth()
+	username := GetUsername(c)
 
 	err := mongodb.DeleteRoom(id, username)
 	if err != nil {
@@ -113,7 +113,7 @@ func DeleteRoomHandler(c echo.Context) error {
 // POST /rooms/:id/join
 func JoinRoomHandler(c echo.Context) error {
 	id := c.Param("id")
-	username, _, _ := c.Request().BasicAuth()
+	username := GetUsername(c)
 
 	room, err := mongodb.FindRoomByID(id)
 	if err != nil {
@@ -140,7 +140,7 @@ func JoinRoomHandler(c echo.Context) error {
 // POST /rooms/:id/leave
 func LeaveRoomHandler(c echo.Context) error {
 	id := c.Param("id")
-	username, _, _ := c.Request().BasicAuth()
+	username := GetUsername(c)
 
 	err := mongodb.LeaveRoom(id, username)
 	if err != nil {

@@ -187,7 +187,7 @@ func RoomWebSocket(c echo.Context) error {
 	}
 	defer ws.Close()
 
-	clientNm, _, _ := c.Request().BasicAuth()
+	clientNm := GetUsername(c)
 
 	hub := RoomMgr.GetOrCreateHub(roomID)
 	client := &Client{
@@ -263,7 +263,7 @@ func MsgReceiver(c echo.Context) error {
 	}
 	defer ws.Close()
 
-	clientNm, _, _ := c.Request().BasicAuth()
+	clientNm := GetUsername(c)
 	roomID := defaultRoom.ID.Hex()
 
 	hub := RoomMgr.GetOrCreateHub(roomID)

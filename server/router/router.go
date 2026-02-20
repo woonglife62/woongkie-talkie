@@ -14,6 +14,14 @@ func Router(e *echo.Echo) {
 
 	middleware.Middleware(e)
 
+	// 인증 엔드포인트 (미들웨어에서 스킵됨)
+	e.POST("/auth/register", handler.RegisterHandler)
+	e.POST("/auth/login", handler.LoginHandler)
+	e.GET("/auth/me", handler.MeHandler)
+
+	// 로그인 페이지
+	e.GET("/login", handler.LoginPageRender)
+
 	// 기존 호환 엔드포인트
 	e.GET("/client", handler.ChatHTMLRender)
 	e.GET("/server", handler.MsgReceiver)

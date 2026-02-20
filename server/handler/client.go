@@ -7,15 +7,17 @@ import (
 )
 
 func ChatHTMLRender(c echo.Context) error {
-
-	req := c.Request()
-	user, _, _ := req.BasicAuth()
-
 	return c.Render(
 		http.StatusOK,
 		"chat.html",
-		map[string]interface{}{
-			"user": user,
-		},
+		map[string]interface{}{},
+	)
+}
+
+func LoginPageRender(c echo.Context) error {
+	return c.Render(
+		http.StatusOK,
+		"login.html",
+		map[string]interface{}{},
 	)
 }

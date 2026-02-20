@@ -47,6 +47,10 @@
                     data-bs-target="#createRoomModal">+</button>
             </div>
             <div id="room-list"></div>
+            <div id="sidebar-footer" style="padding: 10px; border-top: 1px solid #eee;">
+                <small id="current-user-display" style="color: #666;"></small>
+                <button class="btn btn-sm btn-outline-secondary float-end" id="logout-btn">로그아웃</button>
+            </div>
         </div>
 
         <!-- 메인 채팅 영역 -->
@@ -141,17 +145,46 @@
     </div>
 
     <script>
-        var currentUser = '{{index . "user"}}';
+        // JWT 토큰 확인 - 없으면 로그인 페이지로
+        var token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+
+        var currentUser = localStorage.getItem('username') || '';
         var ws = null;
         var currentRoomID = null;
         var currentRoomName = '';
         var pendingJoinRoomID = null;
 
+        // 모든 AJAX 요청에 JWT 토큰 헤더 추가
+        $.ajaxSetup({
+            headers: {
+                'Authorization': 'Bearer ' + token
+            },
+            statusCode: {
+                401: function () {
+                    // 토큰 만료/무효 시 로그인 페이지로
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('username');
+                    window.location.href = '/login';
+                }
+            }
+        });
+
         // 초기화
         $(document).ready(function () {
+            $('#current-user-display').text(currentUser);
             loadDefaultRoom();
             loadRooms();
             setInterval(loadRooms, 5000);
+        });
+
+        // 로그아웃
+        $('#logout-btn').on('click', function () {
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
+            window.location.href = '/login';
         });
 
         // 기본 채팅방 로드
@@ -248,12 +281,13 @@
             loadMembers(roomId);
         }
 
-        // WebSocket 연결
+        // WebSocket 연결 (query param으로 토큰 전달)
         function connectWebSocket(roomId) {
             var loc = window.location;
             var uri = (loc.protocol === 'https:') ? 'wss:' : 'ws:';
             uri += '//' + loc.host;
             uri += '/rooms/' + roomId + '/ws';
+            uri += '?token=' + encodeURIComponent(token);
 
             ws = new WebSocket(uri);
 
