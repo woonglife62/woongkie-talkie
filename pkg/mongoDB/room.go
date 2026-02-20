@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Room struct {
@@ -16,7 +17,7 @@ type Room struct {
 	Name        string             `json:"name" bson:"name"`
 	Description string             `json:"description" bson:"description"`
 	IsPublic    bool               `json:"is_public" bson:"is_public"`
-	Password    string             `json:"password,omitempty" bson:"password,omitempty"`
+	Password    string             `json:"-" bson:"password,omitempty"`
 	MaxMembers  int                `json:"max_members" bson:"max_members"`
 	CreatedBy   string             `json:"created_by" bson:"created_by"`
 	CreatedAt   time.Time          `json:"created_at" bson:"created_at"`
@@ -181,6 +182,26 @@ func JoinRoom(roomID string, username string) error {
 		return errors.New("채팅방 인원이 가득 찼습니다")
 	}
 	return nil
+}
+
+// HashRoomPassword hashes a plaintext room password using bcrypt.
+func HashRoomPassword(password string) (string, error) {
+	if password == "" {
+		return "", nil
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// CheckRoomPassword compares a plaintext password against a bcrypt hash.
+func CheckRoomPassword(room *Room, password string) bool {
+	if room.Password == "" {
+		return true
+	}
+	return bcrypt.CompareHashAndPassword([]byte(room.Password), []byte(password)) == nil
 }
 
 func LeaveRoom(roomID string, username string) error {

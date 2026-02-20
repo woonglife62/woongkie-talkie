@@ -230,8 +230,8 @@
                     var roomId = $(this).data('room-id');
                     if (roomId === currentRoomID) return;
 
-                    // 비공개 방은 비밀번호 입력 필요
-                    if (!room.is_public) {
+                    // 비공개 방(비밀번호 있는 방)은 비밀번호 입력 필요
+                    if (!room.is_public && room.has_password) {
                         pendingJoinRoomID = roomId;
                         var pwModal = new bootstrap.Modal(document.getElementById('passwordModal'));
                         pwModal.show();

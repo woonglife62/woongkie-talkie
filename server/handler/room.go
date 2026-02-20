@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,6 +24,7 @@ type JoinRoomRequest struct {
 type RoomResponse struct {
 	mongodb.Room
 	OnlineMembers []string `json:"online_members"`
+	HasPassword   bool     `json:"has_password"`
 }
 
 // POST /rooms
@@ -39,11 +39,16 @@ func CreateRoomHandler(c echo.Context) error {
 
 	username := GetUsername(c)
 
+	hashedPassword, err := mongodb.HashRoomPassword(req.Password)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "비밀번호 처리에 실패했습니다"})
+	}
+
 	room := mongodb.Room{
 		Name:        req.Name,
 		Description: req.Description,
 		IsPublic:    req.IsPublic,
-		Password:    req.Password,
+		Password:    hashedPassword,
 		MaxMembers:  req.MaxMembers,
 		CreatedBy:   username,
 		IsDefault:   false,
@@ -70,9 +75,8 @@ func ListRoomsHandler(c echo.Context) error {
 
 	var response []RoomResponse
 	for _, room := range rooms {
-		room.Password = ""
 		online := RoomMgr.GetOnlineMembers(room.ID.Hex())
-		response = append(response, RoomResponse{Room: room, OnlineMembers: online})
+		response = append(response, RoomResponse{Room: room, OnlineMembers: online, HasPassword: room.Password != ""})
 	}
 	if response == nil {
 		response = []RoomResponse{}
@@ -89,10 +93,9 @@ func GetRoomHandler(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "채팅방을 찾을 수 없습니다"})
 	}
 
-	room.Password = ""
 	online := RoomMgr.GetOnlineMembers(id)
 
-	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online})
+	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online, HasPassword: room.Password != ""})
 }
 
 // DELETE /rooms/:id
@@ -120,11 +123,11 @@ func JoinRoomHandler(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "채팅방을 찾을 수 없습니다"})
 	}
 
-	// 비공개 방 비밀번호 확인
+	// 비공개 방 비밀번호 확인 (bcrypt)
 	if !room.IsPublic && room.Password != "" {
 		var req JoinRoomRequest
 		c.Bind(&req)
-		if subtle.ConstantTimeCompare([]byte(req.Password), []byte(room.Password)) != 1 {
+		if !mongodb.CheckRoomPassword(room, req.Password) {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "비밀번호가 올바르지 않습니다"})
 		}
 	}
@@ -195,7 +198,6 @@ func GetDefaultRoomHandler(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "기본 채팅방을 찾을 수 없습니다"})
 	}
-	room.Password = ""
 	online := RoomMgr.GetOnlineMembers(room.ID.Hex())
-	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online})
+	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online, HasPassword: room.Password != ""})
 }
