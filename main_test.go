@@ -1,11 +1,9 @@
+//go:build integration
+
 package main
 
-import (
-	"fmt"
-	"os"
-	"testing"
-)
+import "testing"
 
-func TestXxx(t *testing.T) {
-	fmt.Println(os.ExpandEnv("$GOPATH/src/woongkie-talkie/.env"))
+func TestMain(m *testing.M) {
+	m.Run()
 }

@@ -28,6 +28,9 @@ type Room struct {
 var roomCollection *mongo.Collection
 
 func init() {
+	if db.DB == nil {
+		return
+	}
 	collection := "rooms"
 	db.DB.CreateCollection(ctx, collection)
 	roomCollection = db.DB.Collection(collection)

@@ -20,7 +20,9 @@ type Log struct {
 var logCollection *mongo.Collection
 
 func init() {
-
+	if db.DB == nil {
+		return
+	}
 	// log 컬렉션 만들기
 	collection := "log"
 	db.DB.CreateCollection(ctx, collection)

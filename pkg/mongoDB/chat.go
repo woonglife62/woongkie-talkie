@@ -26,6 +26,9 @@ type Chat struct {
 var chatCollection *mongo.Collection
 
 func init() {
+	if db.DB == nil {
+		return
+	}
 	collection := "chat"
 	db.DB.CreateCollection(ctx, collection)
 	chatCollection = db.DB.Collection(collection)

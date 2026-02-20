@@ -22,6 +22,9 @@ type User struct {
 var userCollection *mongo.Collection
 
 func init() {
+	if db.DB == nil {
+		return
+	}
 	collection := "users"
 	db.DB.CreateCollection(ctx, collection)
 	userCollection = db.DB.Collection(collection)
