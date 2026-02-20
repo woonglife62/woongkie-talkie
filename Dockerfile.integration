@@ -19,7 +19,6 @@ ENV GOPATH /go
 COPY ./view /go/src/woongkie-talkie/view
 
 COPY --from=builder /go/bin/woongkie-talkie /
-COPY .env /go/src/woongkie-talkie/.env
 
 EXPOSE 8080
 

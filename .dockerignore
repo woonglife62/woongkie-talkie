@@ -1,8 +1,12 @@
-# .env
-# .env*
+.env
+.env*
+.git
+.omc
+.claude
+mongodb/
 *.exe
 *.md
 *.sh
-
+*.test
 Jenkinsfile
 LICENSE
