@@ -7,7 +7,7 @@ import (
 )
 
 type jwtConfig struct {
-	Secret string `env:"JWT_SECRET" validate:"required"`
+	Secret string `env:"JWT_SECRET" validate:"required,min=32"`
 	Expiry string `env:"JWT_EXPIRY" default:"24h"`
 }
 

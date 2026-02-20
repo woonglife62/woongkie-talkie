@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
 )
@@ -43,25 +43,22 @@ func jwtAuth(e *echo.Echo) {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "인증 토큰이 필요합니다"})
 			}
 
-			// JWT 검증
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, echo.NewHTTPError(http.StatusUnauthorized, "잘못된 토큰입니다")
-				}
+			// JWT 검증 (v5: WithValidMethods로 알고리즘 제한)
+			token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
 				return []byte(config.JWTConfig.Secret), nil
-			})
+			}, jwt.WithValidMethods([]string{"HS256"}))
 
 			if err != nil || !token.Valid {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
 			}
 
-			claims, ok := token.Claims.(jwt.MapClaims)
+			claims, ok := token.Claims.(*jwt.RegisteredClaims)
 			if !ok {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
 			}
 
-			username, ok := claims["username"].(string)
-			if !ok || username == "" {
+			username := claims.Subject
+			if username == "" {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
 			}
 

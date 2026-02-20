@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
@@ -97,10 +97,12 @@ func generateToken(username string) (string, error) {
 		expiry = 24 * time.Hour
 	}
 
-	claims := jwt.MapClaims{
-		"username": username,
-		"exp":      time.Now().Add(expiry).Unix(),
-		"iat":      time.Now().Unix(),
+	now := time.Now()
+	claims := jwt.RegisteredClaims{
+		Subject:   username,
+		ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		IssuedAt:  jwt.NewNumericDate(now),
+		Issuer:    "woongkie-talkie",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
