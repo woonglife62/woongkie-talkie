@@ -10,9 +10,13 @@ import (
 
 func Router(e *echo.Echo) {
 
-	e.Static("/", os.ExpandEnv("$GOPATH/src/woongkie-talkie"))
+	e.Static("/view", os.ExpandEnv("$GOPATH/src/woongkie-talkie/view"))
 
 	middleware.Middleware(e)
+
+	// 헬스체크 (인증 불필요)
+	e.GET("/health", handler.HealthHandler)
+	e.GET("/ready", handler.ReadyHandler)
 
 	// 인증 엔드포인트 (미들웨어에서 스킵됨)
 	e.POST("/auth/register", handler.RegisterHandler)
