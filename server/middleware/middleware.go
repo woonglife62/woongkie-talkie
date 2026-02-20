@@ -9,6 +9,9 @@ func Middleware(e *echo.Echo) {
 	e.Use(echoMiddle.Logger())
 	e.Use(echoMiddle.Recover())
 
+	// security headers
+	securityHeaders(e)
+
 	// auth
 	jwtAuth(e)
 
