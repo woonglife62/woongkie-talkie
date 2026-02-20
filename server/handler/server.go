@@ -163,6 +163,21 @@ func (rm *roomManager) RemoveHub(roomID string) {
 	}
 }
 
+func (rm *roomManager) ShutdownAll() {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	for id, hub := range rm.hubs {
+		close(hub.stop)
+		hub.mu.Lock()
+		for client := range hub.Clients {
+			client.Conn.Close()
+			delete(hub.Clients, client)
+		}
+		hub.mu.Unlock()
+		delete(rm.hubs, id)
+	}
+}
+
 // GetOnlineMembers returns online usernames for a room
 func (rm *roomManager) GetOnlineMembers(roomID string) []string {
 	hub := rm.GetHub(roomID)

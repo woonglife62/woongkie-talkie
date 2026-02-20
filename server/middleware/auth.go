@@ -22,6 +22,10 @@ func jwtAuth(e *echo.Echo) {
 				return next(c)
 			}
 
+			if path == "/health" || path == "/ready" {
+				return next(c)
+			}
+
 			tokenString := ""
 
 			// Authorization: Bearer <token> 헤더에서 추출

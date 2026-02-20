@@ -10,6 +10,7 @@ import (
 )
 
 var DB *mongo.Database
+var Client *mongo.Client
 
 /*
 make DB Connector
@@ -35,6 +36,14 @@ func init() {
 		panic(err)
 	}
 
+	Client = client
+
 	// MongoDB DB 선택 설정
 	DB = client.Database(config.DBConfig.Database)
+}
+
+func Disconnect() {
+	if Client != nil {
+		Client.Disconnect(context.Background())
+	}
 }
