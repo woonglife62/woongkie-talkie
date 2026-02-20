@@ -17,4 +17,7 @@
 .env
 tmp
 
-mongodb
+/mongodb
+
+.claude
+.omc

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Woonglife's chat webapp</title>
+    <title>Woongkie-Talkie</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
@@ -38,167 +38,441 @@
 </head>
 
 <body>
-    <div id="content">
-        <div id="title">
-            <p id="main-title">Hello {{index . "user"}}.</p>
-            <p id="sub-title">Feel free to chat.</p>
+    <div id="app">
+        <!-- 사이드바: 채팅방 목록 -->
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <h5>채팅방</h5>
+                <button class="btn btn-sm btn-blue" id="create-room-btn" data-bs-toggle="modal"
+                    data-bs-target="#createRoomModal">+</button>
+            </div>
+            <div id="room-list"></div>
         </div>
 
-        <br>
+        <!-- 메인 채팅 영역 -->
+        <div id="main-chat">
+            <div id="chat-header">
+                <div id="room-info">
+                    <span id="room-name">general</span>
+                    <span id="room-desc">기본 채팅방</span>
+                </div>
+                <div id="chat-header-right">
+                    <span id="member-count">0</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="toggle-members">참여자</button>
+                </div>
+            </div>
 
-        <div class="shadow-xll p-3 mb-5 bg-body rounded" id="result"></div>
+            <div id="chat-body">
+                <div class="shadow-xll p-3 bg-body rounded" id="result"></div>
 
-        <div id="post-message">
-            <div class="visible">
-                <div class="shadow-xl p-3 mb-5 bg-body rounded">
+                <!-- 참여자 패널 -->
+                <div id="members-panel" class="d-none">
+                    <h6>참여자 목록</h6>
+                    <div id="members-list"></div>
+                </div>
+            </div>
+
+            <div id="post-message">
+                <div class="shadow-xl p-3 bg-body rounded">
                     <div class="input-group">
                         <input class="form-control" type="text" id="chat-message"
-                            placeholder="Press Enter for send message.">
-                        <button class="btn btn-blue" type="button" name="submit-btn" id="submit-btn">Send</button>
+                            placeholder="메시지를 입력하세요. (Enter로 전송)">
+                        <button class="btn btn-blue" type="button" id="submit-btn">전송</button>
                     </div>
                 </div>
             </div>
         </div>
-
-        <script>
-            var loc = window.location;
-            var uri = 'ws:';
-
-            if (loc.protocol === 'https:') {
-                uri = 'wss:';
-            }
-            uri += '//' + loc.host;
-            uri += '/server';
-            ws = new WebSocket(uri)
-
-            ws.onopen = (event) => {
-                let sendData = { event: "OPEN" }
-                ws.send(JSON.stringify(sendData));
-            }
-
-            ws.onmessage = (event) => {
-                let recData = JSON.parse(event.data);
-
-                // 내용을 p tag로 추가한다.
-                let outArea = document.getElementById('result');
-                let newTagP = document.createElement('p');
-                let newTagSpan = document.createElement('span');
-
-                if (recData.Event === "OPEN" || recData.Event === "CLOSE") {
-                    newTagP.setAttribute('class', 'p-alert');
-                    newTagSpan.setAttribute('class', 'span-alert');
-                } else if (recData.owner === true) {
-                    newTagP.setAttribute('class', 'p-me preserve-whitespace');
-                    newTagSpan.setAttribute('class', 'span-me');
-                } else {
-                    newTagP.setAttribute('class', 'p-you preserve-whitespace');
-                    newTagSpan.setAttribute('class', 'span-you');
-
-                    // // 이전 글이 동일인물이면 username 안넣기
-                    // let resultID = document.getElementById("result")
-                    // let lastResultChild = resultID.lastChild
-                    // if (lastResultChild.firstChild.className == "user-name" && lastResultChild.firstChild.textContent === recData.User) {
-                    //     console.log(lastResultChild.firstChild.className);
-                    //     console.log(lastResultChild.firstChild.textContent);
-                    //     let newTagSpanUser = document.createElement('span')
-                    //     newTagSpanUser.setAttribute('class', 'user-name')
-                    //     newTagSpanUser.innerText = leadingSpaces(recData.User.length)
-                    //     newTagP.appendChild(newTagSpanUser)
-                    // }
-                    // else {
-                    //     let newTagSpanUser = document.createElement('span')
-                    //     newTagSpanUser.setAttribute('class', 'user-name')
-                    //     newTagSpanUser.innerText = recData.User
-                    //     newTagP.appendChild(newTagSpanUser)
-                    // }
-
-                    let newTagSpanUser = document.createElement('span')
-                    newTagSpanUser.setAttribute('class', 'user-name')
-                    newTagSpanUser.innerText = recData.User
-                    newTagP.appendChild(newTagSpanUser)
-
-                    let newTagSpanSpace = document.createElement('span')
-                    newTagSpanSpace.setAttribute('class', 'user-name-space')
-                    newTagSpanSpace.innerText = " "
-                    newTagP.appendChild(newTagSpanSpace)
-                }
-
-                // url 이면 link 건다.
-                if (validURL(recData.message)) {
-                    if (!validProtocol(recData.message)) {
-                        //newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"https://"+recData.message+"\" target=\"_blank\">"+recData.message+"</a>"
-                        newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"https://" + recData.message + "\" target=\"_blank\">" + recData.message + "</a>"
-                    } else {
-                        newTagSpan.innerHTML = "<a class=\"hypertext\" href=\"" + recData.message + "\" target=\"_blank\">" + recData.message + "</a>"
-                    }
-                }
-                else {
-                    newTagSpan.textContent = recData.message;
-                }
-                //newTagSpan.innerHTML = recData.message;
-
-                newTagP.appendChild(newTagSpan)
-                outArea.appendChild(newTagP)
-
-                const vScrollDown = $("#result").prop('scrollHeight');
-                $("#result").scrollTop(vScrollDown);
-                if (recData.Event === "MESSAGE") {
-                    beep();
-                }
-            }
-
-            ws.addEventListener("close", (event) => {
-                let sendData = { event: "CLOSE" }
-                ws.send(JSON.stringify(sendData))
-            });
-
-            $("#chat-message").on("keyup", function () {
-                if (window.event.keyCode == 13) {
-                    $("#submit-btn").click();
-                }
-            });
-
-            $("#submit-btn").on("click", function () {
-                var msg = $("#chat-message").val();
-                let tmpmsg = msg
-                if (msg == null || msg == "" || tmpmsg.trim() == "") {
-                    return false
-                }
-                let sendData = { event: "MESSAGE", user: "", message: msg };
-                ws.send(JSON.stringify(sendData));
-                $("#chat-message").val("");
-            });
-
-            function beep() {
-                var snd = new Audio("/view/sound/alert.mp3");
-                snd.play();
-            }
-
-            function validURL(str) {
-                var pattern = new RegExp('^(https?:\\/\\/)?' + // protocol
-                    '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|' + // domain name
-                    '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
-                    '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*' + // port and path
-                    '(\\?[;&a-z\\d%_.~+=-]*)?' + // query string
-                    '(\\#[-a-z\\d_]*)?$', 'i'); // fragment locator
-                return !!pattern.test(str);
-            }
-            function validProtocol(str) {
-                var pattern = /^http[s]?\:\/\//i;
-                return !!pattern.test(str);
-            }
-
-            function leadingSpaces(digits) {
-                var space = '';
-
-                if (1 < digits) {
-                    for (var i = 0; i < digits - 1; i++)
-                        space += ' ';
-                }
-                return space;
-            }
-        </script>
     </div>
+
+    <!-- 채팅방 생성 모달 -->
+    <div class="modal fade" id="createRoomModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">채팅방 만들기</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">채팅방 이름 *</label>
+                        <input type="text" class="form-control" id="new-room-name" placeholder="채팅방 이름">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">설명</label>
+                        <input type="text" class="form-control" id="new-room-desc" placeholder="채팅방 설명">
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="new-room-public" checked>
+                        <label class="form-check-label" for="new-room-public">공개 채팅방</label>
+                    </div>
+                    <div class="mb-3" id="password-field" style="display:none;">
+                        <label class="form-label">비밀번호</label>
+                        <input type="password" class="form-control" id="new-room-password" placeholder="비밀번호">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">최대 인원 (0 = 무제한)</label>
+                        <input type="number" class="form-control" id="new-room-max" value="0" min="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-blue" id="confirm-create-room">만들기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 비밀번호 입력 모달 -->
+    <div class="modal fade" id="passwordModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">비밀번호 입력</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="password" class="form-control" id="join-room-password" placeholder="비밀번호">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-blue" id="confirm-join-password">참여</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var currentUser = '{{index . "user"}}';
+        var ws = null;
+        var currentRoomID = null;
+        var currentRoomName = '';
+        var pendingJoinRoomID = null;
+
+        // 초기화
+        $(document).ready(function () {
+            loadDefaultRoom();
+            loadRooms();
+            setInterval(loadRooms, 5000);
+        });
+
+        // 기본 채팅방 로드
+        function loadDefaultRoom() {
+            $.ajax({
+                url: '/rooms/default',
+                method: 'GET',
+                success: function (room) {
+                    switchRoom(room.id, room.name, room.description);
+                },
+                error: function () {
+                    console.error('기본 채팅방을 찾을 수 없습니다.');
+                }
+            });
+        }
+
+        // 채팅방 목록 로드
+        function loadRooms() {
+            $.ajax({
+                url: '/rooms',
+                method: 'GET',
+                success: function (rooms) {
+                    renderRoomList(rooms);
+                }
+            });
+        }
+
+        // 채팅방 목록 렌더링
+        function renderRoomList(rooms) {
+            var $list = $('#room-list');
+            $list.empty();
+            rooms.forEach(function (room) {
+                var onlineCount = room.online_members ? room.online_members.length : 0;
+                var activeClass = room.id === currentRoomID ? 'room-item active' : 'room-item';
+                var defaultBadge = room.is_default ? ' <span class="badge bg-secondary">기본</span>' : '';
+                var $item = $('<div class="' + activeClass + '" data-room-id="' + room.id + '">' +
+                    '<div class="room-item-name">' + escapeHtml(room.name) + defaultBadge + '</div>' +
+                    '<div class="room-item-info">' +
+                    '<span class="room-item-members">' + onlineCount + '명 접속</span>' +
+                    '</div>' +
+                    '</div>');
+                $item.on('click', function () {
+                    var roomId = $(this).data('room-id');
+                    if (roomId === currentRoomID) return;
+
+                    // 비공개 방은 비밀번호 입력 필요
+                    if (!room.is_public) {
+                        pendingJoinRoomID = roomId;
+                        var pwModal = new bootstrap.Modal(document.getElementById('passwordModal'));
+                        pwModal.show();
+                        return;
+                    }
+
+                    joinAndSwitch(roomId, room.name, room.description);
+                });
+                $list.append($item);
+            });
+        }
+
+        // 채팅방 참여 후 전환
+        function joinAndSwitch(roomId, name, desc) {
+            $.ajax({
+                url: '/rooms/' + roomId + '/join',
+                method: 'POST',
+                contentType: 'application/json',
+                success: function () {
+                    switchRoom(roomId, name, desc);
+                },
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '참여에 실패했습니다.');
+                }
+            });
+        }
+
+        // 채팅방 전환
+        function switchRoom(roomId, name, desc) {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            currentRoomID = roomId;
+            currentRoomName = name;
+
+            $('#room-name').text(name);
+            $('#room-desc').text(desc || '');
+            $('#result').empty();
+
+            // 방 목록에서 active 표시 갱신
+            $('.room-item').removeClass('active');
+            $('.room-item[data-room-id="' + roomId + '"]').addClass('active');
+
+            connectWebSocket(roomId);
+            loadMembers(roomId);
+        }
+
+        // WebSocket 연결
+        function connectWebSocket(roomId) {
+            var loc = window.location;
+            var uri = (loc.protocol === 'https:') ? 'wss:' : 'ws:';
+            uri += '//' + loc.host;
+            uri += '/rooms/' + roomId + '/ws';
+
+            ws = new WebSocket(uri);
+
+            ws.onopen = function () {
+                var sendData = { event: "OPEN" };
+                ws.send(JSON.stringify(sendData));
+            };
+
+            ws.onmessage = function (event) {
+                var recData = JSON.parse(event.data);
+                appendMessage(recData);
+            };
+
+            ws.onclose = function () {
+                console.log('WebSocket closed for room: ' + roomId);
+            };
+        }
+
+        // 메시지 표시
+        function appendMessage(recData) {
+            var outArea = document.getElementById('result');
+            var newTagP = document.createElement('p');
+            var newTagSpan = document.createElement('span');
+
+            if (recData.Event === "OPEN" || recData.Event === "CLOSE") {
+                newTagP.setAttribute('class', 'p-alert');
+                newTagSpan.setAttribute('class', 'span-alert');
+            } else if (recData.owner === true) {
+                newTagP.setAttribute('class', 'p-me preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-me');
+            } else {
+                newTagP.setAttribute('class', 'p-you preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-you');
+
+                var newTagSpanUser = document.createElement('span');
+                newTagSpanUser.setAttribute('class', 'user-name');
+                newTagSpanUser.innerText = recData.User;
+                newTagP.appendChild(newTagSpanUser);
+
+                var newTagSpanSpace = document.createElement('span');
+                newTagSpanSpace.setAttribute('class', 'user-name-space');
+                newTagSpanSpace.innerText = " ";
+                newTagP.appendChild(newTagSpanSpace);
+            }
+
+            if (validURL(recData.message)) {
+                if (!validProtocol(recData.message)) {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                } else {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                }
+            } else {
+                newTagSpan.textContent = recData.message;
+            }
+
+            newTagP.appendChild(newTagSpan);
+            outArea.appendChild(newTagP);
+
+            var vScrollDown = $("#result").prop('scrollHeight');
+            $("#result").scrollTop(vScrollDown);
+
+            if (recData.Event === "MESSAGE") {
+                beep();
+            }
+        }
+
+        // 참여자 목록 로드
+        function loadMembers(roomId) {
+            $.ajax({
+                url: '/rooms/' + roomId,
+                method: 'GET',
+                success: function (room) {
+                    var online = room.online_members || [];
+                    var members = room.members || [];
+                    $('#member-count').text(online.length + '명');
+
+                    var $list = $('#members-list');
+                    $list.empty();
+                    // 온라인 멤버 먼저
+                    online.forEach(function (name) {
+                        $list.append('<div class="member-item online">' + escapeHtml(name) + ' <span class="badge bg-success">접속중</span></div>');
+                    });
+                    // 오프라인 멤버
+                    members.forEach(function (name) {
+                        if (online.indexOf(name) === -1) {
+                            $list.append('<div class="member-item">' + escapeHtml(name) + '</div>');
+                        }
+                    });
+                }
+            });
+        }
+
+        // 메시지 전송
+        $("#chat-message").on("keyup", function (e) {
+            if (e.keyCode == 13) {
+                $("#submit-btn").click();
+            }
+        });
+
+        $("#submit-btn").on("click", function () {
+            var msg = $("#chat-message").val();
+            if (msg == null || msg == "" || msg.trim() == "") return false;
+            var sendData = { event: "MESSAGE", user: "", message: msg };
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(sendData));
+            }
+            $("#chat-message").val("");
+        });
+
+        // 채팅방 생성
+        $('#new-room-public').on('change', function () {
+            if ($(this).is(':checked')) {
+                $('#password-field').hide();
+            } else {
+                $('#password-field').show();
+            }
+        });
+
+        $('#confirm-create-room').on('click', function () {
+            var name = $('#new-room-name').val().trim();
+            if (!name) {
+                alert('채팅방 이름을 입력하세요.');
+                return;
+            }
+            var data = {
+                name: name,
+                description: $('#new-room-desc').val().trim(),
+                is_public: $('#new-room-public').is(':checked'),
+                password: $('#new-room-password').val(),
+                max_members: parseInt($('#new-room-max').val()) || 0
+            };
+            $.ajax({
+                url: '/rooms',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function (room) {
+                    bootstrap.Modal.getInstance(document.getElementById('createRoomModal')).hide();
+                    $('#new-room-name').val('');
+                    $('#new-room-desc').val('');
+                    $('#new-room-password').val('');
+                    $('#new-room-max').val('0');
+                    $('#new-room-public').prop('checked', true);
+                    $('#password-field').hide();
+                    loadRooms();
+                    switchRoom(room.id, room.name, room.description);
+                },
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '채팅방 생성에 실패했습니다.');
+                }
+            });
+        });
+
+        // 비밀번호 참여
+        $('#confirm-join-password').on('click', function () {
+            if (!pendingJoinRoomID) return;
+            var pw = $('#join-room-password').val();
+            $.ajax({
+                url: '/rooms/' + pendingJoinRoomID + '/join',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ password: pw }),
+                success: function () {
+                    bootstrap.Modal.getInstance(document.getElementById('passwordModal')).hide();
+                    $('#join-room-password').val('');
+                    // Find room info and switch
+                    $.ajax({
+                        url: '/rooms/' + pendingJoinRoomID,
+                        method: 'GET',
+                        success: function (room) {
+                            switchRoom(room.id, room.name, room.description);
+                        }
+                    });
+                    pendingJoinRoomID = null;
+                },
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '참여에 실패했습니다.');
+                }
+            });
+        });
+
+        // 참여자 패널 토글
+        $('#toggle-members').on('click', function () {
+            $('#members-panel').toggleClass('d-none');
+            if (!$('#members-panel').hasClass('d-none') && currentRoomID) {
+                loadMembers(currentRoomID);
+            }
+        });
+
+        // 유틸리티 함수
+        function beep() {
+            var snd = new Audio("/view/sound/alert.mp3");
+            snd.play();
+        }
+
+        function validURL(str) {
+            var pattern = new RegExp('^(https?:\\/\\/)?' +
+                '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|' +
+                '((\\d{1,3}\\.){3}\\d{1,3}))' +
+                '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*' +
+                '(\\?[;&a-z\\d%_.~+=-]*)?' +
+                '(\\#[-a-z\\d_]*)?$', 'i');
+            return !!pattern.test(str);
+        }
+
+        function validProtocol(str) {
+            var pattern = /^http[s]?\:\/\//i;
+            return !!pattern.test(str);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(text));
+            return div.innerHTML;
+        }
+    </script>
 </body>
 
 </html>

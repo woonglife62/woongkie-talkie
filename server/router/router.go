@@ -10,11 +10,22 @@ import (
 
 func Router(e *echo.Echo) {
 
-	e.Static("/", os.ExpandEnv("$GOPATH/src/woongkie-talkie")) // echo root Path
+	e.Static("/", os.ExpandEnv("$GOPATH/src/woongkie-talkie"))
 
 	middleware.Middleware(e)
 
+	// 기존 호환 엔드포인트
 	e.GET("/client", handler.ChatHTMLRender)
-
 	e.GET("/server", handler.MsgReceiver)
+
+	// 채팅방 REST API
+	e.GET("/rooms/default", handler.GetDefaultRoomHandler)
+	e.POST("/rooms", handler.CreateRoomHandler)
+	e.GET("/rooms", handler.ListRoomsHandler)
+	e.GET("/rooms/:id", handler.GetRoomHandler)
+	e.DELETE("/rooms/:id", handler.DeleteRoomHandler)
+	e.POST("/rooms/:id/join", handler.JoinRoomHandler)
+	e.POST("/rooms/:id/leave", handler.LeaveRoomHandler)
+	e.GET("/rooms/:id/ws", handler.RoomWebSocket)
+	e.GET("/rooms/:id/messages", handler.GetRoomMessagesHandler)
 }

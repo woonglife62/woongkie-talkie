@@ -1,0 +1,201 @@
+package handler
+
+import (
+	"crypto/subtle"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+)
+
+type CreateRoomRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsPublic    bool   `json:"is_public"`
+	Password    string `json:"password,omitempty"`
+	MaxMembers  int    `json:"max_members"`
+}
+
+type JoinRoomRequest struct {
+	Password string `json:"password,omitempty"`
+}
+
+type RoomResponse struct {
+	mongodb.Room
+	OnlineMembers []string `json:"online_members"`
+}
+
+// POST /rooms
+func CreateRoomHandler(c echo.Context) error {
+	var req CreateRoomRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
+	}
+	if req.Name == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 이름은 필수입니다"})
+	}
+
+	username, _, _ := c.Request().BasicAuth()
+
+	room := mongodb.Room{
+		Name:        req.Name,
+		Description: req.Description,
+		IsPublic:    req.IsPublic,
+		Password:    req.Password,
+		MaxMembers:  req.MaxMembers,
+		CreatedBy:   username,
+		IsDefault:   false,
+		Members:     []string{username},
+	}
+
+	created, err := mongodb.CreateRoom(room)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 생성에 실패했습니다: " + err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, created)
+}
+
+// GET /rooms
+func ListRoomsHandler(c echo.Context) error {
+	rooms, err := mongodb.FindRooms()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 목록 조회에 실패했습니다"})
+	}
+	if rooms == nil {
+		rooms = []mongodb.Room{}
+	}
+
+	var response []RoomResponse
+	for _, room := range rooms {
+		room.Password = ""
+		online := RoomMgr.GetOnlineMembers(room.ID.Hex())
+		response = append(response, RoomResponse{Room: room, OnlineMembers: online})
+	}
+	if response == nil {
+		response = []RoomResponse{}
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
+// GET /rooms/:id
+func GetRoomHandler(c echo.Context) error {
+	id := c.Param("id")
+	room, err := mongodb.FindRoomByID(id)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "채팅방을 찾을 수 없습니다"})
+	}
+
+	room.Password = ""
+	online := RoomMgr.GetOnlineMembers(id)
+
+	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online})
+}
+
+// DELETE /rooms/:id
+func DeleteRoomHandler(c echo.Context) error {
+	id := c.Param("id")
+	username, _, _ := c.Request().BasicAuth()
+
+	err := mongodb.DeleteRoom(id, username)
+	if err != nil {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+
+	RoomMgr.RemoveHub(id)
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방이 삭제되었습니다"})
+}
+
+// POST /rooms/:id/join
+func JoinRoomHandler(c echo.Context) error {
+	id := c.Param("id")
+	username, _, _ := c.Request().BasicAuth()
+
+	room, err := mongodb.FindRoomByID(id)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "채팅방을 찾을 수 없습니다"})
+	}
+
+	// 비공개 방 비밀번호 확인
+	if !room.IsPublic && room.Password != "" {
+		var req JoinRoomRequest
+		c.Bind(&req)
+		if subtle.ConstantTimeCompare([]byte(req.Password), []byte(room.Password)) != 1 {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "비밀번호가 올바르지 않습니다"})
+		}
+	}
+
+	err = mongodb.JoinRoom(id, username)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에 참여했습니다"})
+}
+
+// POST /rooms/:id/leave
+func LeaveRoomHandler(c echo.Context) error {
+	id := c.Param("id")
+	username, _, _ := c.Request().BasicAuth()
+
+	err := mongodb.LeaveRoom(id, username)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에서 나갔습니다"})
+}
+
+// GET /rooms/:id/messages
+func GetRoomMessagesHandler(c echo.Context) error {
+	id := c.Param("id")
+
+	beforeStr := c.QueryParam("before")
+	limitStr := c.QueryParam("limit")
+
+	limit := int64(50)
+	if limitStr != "" {
+		if l, err := strconv.ParseInt(limitStr, 10, 64); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	if beforeStr != "" {
+		before, err := time.Parse(time.RFC3339, beforeStr)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 시간 형식입니다"})
+		}
+		chats, err := mongodb.FindChatByRoomBefore(id, before, limit)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "메시지 조회에 실패했습니다"})
+		}
+		if chats == nil {
+			chats = []mongodb.Chat{}
+		}
+		return c.JSON(http.StatusOK, chats)
+	}
+
+	chats, err := mongodb.FindChatByRoom(id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "메시지 조회에 실패했습니다"})
+	}
+	if chats == nil {
+		chats = []mongodb.Chat{}
+	}
+	return c.JSON(http.StatusOK, chats)
+}
+
+// GET /rooms/default
+func GetDefaultRoomHandler(c echo.Context) error {
+	room, err := mongodb.FindDefaultRoom()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "기본 채팅방을 찾을 수 없습니다"})
+	}
+	room.Password = ""
+	online := RoomMgr.GetOnlineMembers(room.ID.Hex())
+	return c.JSON(http.StatusOK, RoomResponse{Room: *room, OnlineMembers: online})
+}
