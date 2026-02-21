@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -22,23 +21,22 @@ type User struct {
 
 var userCollection *mongo.Collection
 
-func init() {
-	if db.DB == nil {
-		return
-	}
+// InitUserCollection initializes the user collection with indexes.
+func InitUserCollection(database *mongo.Database) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	collection := "users"
-	db.DB.CreateCollection(ctx, collection)
-	userCollection = db.DB.Collection(collection)
+	database.CreateCollection(ctx, collection)
+	userCollection = database.Collection(collection)
 
 	// username 필드에 유니크 인덱스 생성
 	indexModel := mongo.IndexModel{
 		Keys:    bson.D{{Key: "username", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	}
-	userCollection.Indexes().CreateOne(ctx, indexModel)
+	_, err := userCollection.Indexes().CreateOne(ctx, indexModel)
+	return err
 }
 
 func CreateUser(username, password, displayName string) (*User, error) {

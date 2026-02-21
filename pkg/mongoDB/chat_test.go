@@ -9,7 +9,7 @@ import (
 )
 
 // TestChatMessage_Structure verifies that ChatMessage fields have the expected
-// JSON and BSON struct tags.
+// JSON struct tags.
 func TestChatMessage_Structure(t *testing.T) {
 	msg := ChatMessage{
 		Event:   "OPEN",
@@ -26,15 +26,12 @@ func TestChatMessage_Structure(t *testing.T) {
 	assert.Equal(t, "room-123", msg.RoomID)
 }
 
-// TestChat_Structure verifies that the Chat struct embeds ChatMessage correctly.
+// TestChat_Structure verifies that the Chat struct has flat fields.
 func TestChat_Structure(t *testing.T) {
-	inner := ChatMessage{
+	chat := Chat{
+		RoomID:  "room-456",
 		User:    "bob",
 		Message: "world",
-	}
-	chat := Chat{
-		RoomID:      "room-456",
-		ChatMessage: inner,
 	}
 
 	assert.Equal(t, "room-456", chat.RoomID)

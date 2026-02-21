@@ -418,6 +418,7 @@ func MsgReceiver(c echo.Context) error {
 			tmpMsg := mongodb.ChatMessage{
 				User:    pastChat.User,
 				Message: pastChat.Message,
+				RoomID:  roomID,
 				Event:   "CHATLOG",
 			}
 			if pastChat.User == clientNm {

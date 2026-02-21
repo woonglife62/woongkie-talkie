@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
 	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
+	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 	"github.com/woonglife62/woongkie-talkie/server/handler"
 	"github.com/woonglife62/woongkie-talkie/server/router"
 )
@@ -22,6 +24,17 @@ var serveCmd = &cobra.Command{
 	Long: `
 1. Start Simple Chat Server.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Explicit MongoDB initialization
+		if err := db.Initialize(); err != nil {
+			logger.Logger.Warnw("MongoDB initialization failed", "error", err)
+			// Don't fatal - allow running without DB for development
+		}
+		if db.DB != nil {
+			if err := mongodb.InitAll(db.DB); err != nil {
+				logger.Logger.Errorw("MongoDB collections init failed", "error", err)
+			}
+		}
+
 		e := echo.New()
 
 		router.Router(e)

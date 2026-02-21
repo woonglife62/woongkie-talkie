@@ -314,12 +314,11 @@
                     $('#result').empty();
                     for (var i = 0; i < messages.length; i++) {
                         var msg = messages[i];
-                        var chatMsg = msg['Chat Message'] || msg;
-                        appendMsg(chatMsg.User, chatMsg.message, chatMsg.User === currentUser);
+                        appendMsg(msg.user, msg.message, msg.user === currentUser);
                     }
 
                     if (messages.length > 0) {
-                        oldestTimestamp = messages[0].DateTime || messages[0]['Date Time'];
+                        oldestTimestamp = messages[0].created_at;
                         lastMessageTimestamp = new Date().toISOString();
                     }
                 }
@@ -368,8 +367,7 @@
                             var messages = data.messages || [];
                             for (var i = 0; i < messages.length; i++) {
                                 var msg = messages[i];
-                                var chatMsg = msg['Chat Message'] || msg;
-                                appendMsg(chatMsg.User, chatMsg.message, chatMsg.User === currentUser);
+                                appendMsg(msg.user, msg.message, msg.user === currentUser);
                             }
                             if (messages.length > 0) {
                                 lastMessageTimestamp = new Date().toISOString();
@@ -506,7 +504,7 @@
             var outArea = document.getElementById('result');
             var newTagP = document.createElement('p');
             var newTagSpan = document.createElement('span');
-            var user = chatMsg.User || '';
+            var user = chatMsg.user || '';
             var message = chatMsg.message || '';
             var isOwner = user === currentUser;
 
@@ -565,13 +563,12 @@
                         return;
                     }
 
-                    oldestTimestamp = messages[0].DateTime || messages[0]['Date Time'];
+                    oldestTimestamp = messages[0].created_at;
 
                     // 역순으로 prepend (messages는 오래된 것부터 정렬)
                     for (var i = messages.length - 1; i >= 0; i--) {
                         var msg = messages[i];
-                        var chatMsg = msg['Chat Message'] || msg;
-                        prependChatMessage(chatMsg);
+                        prependChatMessage(msg);
                     }
 
                     // 스크롤 위치 보존

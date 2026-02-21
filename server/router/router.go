@@ -26,6 +26,10 @@ func Router(e *echo.Echo) {
 
 	middleware.Middleware(e)
 
+	// API 문서
+	e.GET("/docs", handler.SwaggerUIHandler)
+	e.GET("/docs/openapi.yaml", handler.OpenAPISpecHandler)
+
 	// 헬스체크 (인증 불필요)
 	e.GET("/health", handler.HealthHandler)
 	e.GET("/ready", handler.ReadyHandler)

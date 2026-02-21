@@ -2,10 +2,10 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
-	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -14,11 +14,9 @@ import (
 var DB *mongo.Database
 var Client *mongo.Client
 
-/*
-make DB Connector
-*/
-func init() {
-
+// Initialize connects to MongoDB and sets up the database.
+// Returns an error instead of silently failing.
+func Initialize() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -28,22 +26,20 @@ func init() {
 		Password: config.DBConfig.Password,
 	}).SetMaxPoolSize(50).SetMinPoolSize(5).SetMaxConnIdleTime(30*time.Second).SetServerSelectionTimeout(5*time.Second))
 	if err != nil {
-		logger.Logger.Warnw("MongoDB connect error", "error", err)
-		return
+		return fmt.Errorf("MongoDB connect error: %w", err)
 	}
-	// defer client.Disconnect(ctx)
 
 	// Ping
 	err = client.Ping(ctx, readpref.Primary())
 	if err != nil {
-		logger.Logger.Warnw("MongoDB ping failed", "error", err)
-		return
+		return fmt.Errorf("MongoDB ping failed: %w", err)
 	}
 
 	Client = client
 
 	// MongoDB DB 선택 설정
 	DB = client.Database(config.DBConfig.Database)
+	return nil
 }
 
 func Disconnect() {

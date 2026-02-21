@@ -11,6 +11,7 @@ RUN apk --no-cache add ca-certificates && \
 WORKDIR /app
 COPY --from=builder /app/woongkie-talkie /app/woongkie-talkie
 COPY --from=builder /app/view /app/view
+COPY --from=builder /app/docs /app/docs
 USER appuser
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

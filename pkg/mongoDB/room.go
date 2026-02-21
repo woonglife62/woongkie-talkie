@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -28,33 +27,37 @@ type Room struct {
 
 var roomCollection *mongo.Collection
 
-func init() {
-	if db.DB == nil {
-		return
-	}
+// InitRoomCollection initializes the room collection with indexes and default room.
+func InitRoomCollection(database *mongo.Database) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	collection := "rooms"
-	db.DB.CreateCollection(ctx, collection)
-	roomCollection = db.DB.Collection(collection)
+	database.CreateCollection(ctx, collection)
+	roomCollection = database.Collection(collection)
 
 	// name 필드에 유니크 인덱스 생성
 	indexModel := mongo.IndexModel{
 		Keys:    bson.D{{Key: "name", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	}
-	roomCollection.Indexes().CreateOne(ctx, indexModel)
+	if _, err := roomCollection.Indexes().CreateOne(ctx, indexModel); err != nil {
+		return err
+	}
 
 	// is_public 인덱스 생성
-	roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+	if _, err := roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "is_public", Value: 1}},
-	})
+	}); err != nil {
+		return err
+	}
 
 	// is_default 인덱스 생성
-	roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+	if _, err := roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "is_default", Value: 1}},
-	})
+	}); err != nil {
+		return err
+	}
 
 	// 기본 "general" 채팅방 생성
 	ensureDefaultRoom(ctx)
@@ -64,6 +67,8 @@ func init() {
 	if err == nil {
 		MigrateChatsToRoom(defaultRoom.ID.Hex())
 	}
+
+	return nil
 }
 
 func ensureDefaultRoom(ctx context.Context) {
