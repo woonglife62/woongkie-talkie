@@ -3,7 +3,6 @@ package middleware
 import (
 	"html/template"
 	"io"
-	"os"
 
 	"github.com/labstack/echo/v4"
 )
@@ -20,6 +19,6 @@ func (t *templateRenderer) Render(w io.Writer, name string, data interface{}, c 
 func render(e *echo.Echo) {
 
 	e.Renderer = &templateRenderer{
-		templates: template.Must(template.ParseGlob(os.ExpandEnv("$GOPATH/src/woongkie-talkie/view/*.html"))),
+		templates: template.Must(template.ParseGlob("view/*.html")),
 	}
 }
