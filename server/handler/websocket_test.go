@@ -78,7 +78,7 @@ func readWithTimeout(t *testing.T, conn *websocket.Conn, d time.Duration) (mongo
 // TestWebSocket_HubCommunication verifies that a message sent to hub.Broadcast
 // is received by a connected client.
 func TestWebSocket_HubCommunication(t *testing.T) {
-	hub := NewHub("room-hub-comm")
+	hub := NewHub("room-hub-comm", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -103,7 +103,7 @@ func TestWebSocket_HubCommunication(t *testing.T) {
 
 // TestWebSocket_MultipleClients verifies that a broadcast reaches all connected clients.
 func TestWebSocket_MultipleClients(t *testing.T) {
-	hub := NewHub("room-multi")
+	hub := NewHub("room-multi", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -149,7 +149,7 @@ func TestWebSocket_MultipleClients(t *testing.T) {
 // TestWebSocket_ClientDisconnect verifies that after a client disconnects
 // it is removed from the hub's client map.
 func TestWebSocket_ClientDisconnect(t *testing.T) {
-	hub := NewHub("room-disconnect")
+	hub := NewHub("room-disconnect", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -176,7 +176,7 @@ func TestWebSocket_ClientDisconnect(t *testing.T) {
 
 // TestWebSocket_OpenEvent verifies that an OPEN event results in a join message.
 func TestWebSocket_OpenEvent(t *testing.T) {
-	hub := NewHub("room-open-event")
+	hub := NewHub("room-open-event", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -196,7 +196,7 @@ func TestWebSocket_OpenEvent(t *testing.T) {
 
 // TestWebSocket_CloseEvent verifies that a CLOSE event results in a leave message.
 func TestWebSocket_CloseEvent(t *testing.T) {
-	hub := NewHub("room-close-event")
+	hub := NewHub("room-close-event", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -216,7 +216,7 @@ func TestWebSocket_CloseEvent(t *testing.T) {
 
 // TestHub_GetMemberNames verifies GetMemberNames returns unique usernames.
 func TestHub_GetMemberNames(t *testing.T) {
-	hub := NewHub("room-members")
+	hub := NewHub("room-members", nil)
 	go hub.Run()
 	defer close(hub.stop)
 

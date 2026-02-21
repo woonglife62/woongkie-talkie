@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	redisclient "github.com/woonglife62/woongkie-talkie/pkg/redis"
 	"github.com/woonglife62/woongkie-talkie/server/middleware"
 	"golang.org/x/time/rate"
 )
@@ -170,9 +173,10 @@ type Hub struct {
 	Unregister chan *Client
 	stop       chan struct{}
 	mu         sync.RWMutex
+	broker     *redisclient.Broker
 }
 
-func NewHub(roomID string) *Hub {
+func NewHub(roomID string, broker *redisclient.Broker) *Hub {
 	return &Hub{
 		RoomID:     roomID,
 		Clients:    make(map[*Client]bool),
@@ -180,10 +184,30 @@ func NewHub(roomID string) *Hub {
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		stop:       make(chan struct{}),
+		broker:     broker,
 	}
 }
 
 func (h *Hub) Run() {
+	// Subscribe to Redis channel if broker is available; use a never-closing channel as fallback.
+	redisCh := make(chan []byte) // blocks forever if Redis not used
+	if h.broker != nil && !h.broker.IsFallback() {
+		msgCh := make(chan []byte, 256)
+		if err := h.broker.Subscribe(h.RoomID, func(data []byte) {
+			select {
+			case msgCh <- data:
+			default:
+				// slow consumer: drop message
+			}
+		}); err != nil {
+			logger.Logger.Warnw("Redis subscribe failed, using local fallback",
+				"room_id", h.RoomID, "error", err)
+		} else {
+			redisCh = msgCh
+			defer h.broker.Unsubscribe(h.RoomID)
+		}
+	}
+
 	for {
 		select {
 		case <-h.stop:
@@ -211,32 +235,63 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 		case msg := <-h.Broadcast:
-			msgFulltxt := msg.Message
-			h.mu.Lock()
-			for client := range h.Clients {
-				clientMsg := msg
-				clientMsg.Message = msgFulltxt
-				if client.Username == msg.User {
-					clientMsg.Owner = true
+			// Message from a local client: publish to Redis or fall back to local broadcast.
+			if h.broker != nil && !h.broker.IsFallback() {
+				data, err := json.Marshal(msg)
+				if err == nil {
+					if pubErr := h.broker.Publish(context.Background(), h.RoomID, data); pubErr != nil {
+						logger.Logger.Warnw("Redis publish failed, using local broadcast",
+							"room_id", h.RoomID, "error", pubErr)
+						h.broadcastLocal(msg)
+					}
+					// When Redis is healthy we receive our own message back via redisCh.
 				} else {
-					clientMsg.Owner = false
+					h.broadcastLocal(msg)
 				}
-				if clientMsg.Event == "OPEN" {
-					clientMsg.Message = fmt.Sprintf("---- %s님이 입장하셨습니다. ----", clientMsg.User)
-				} else if clientMsg.Event == "CLOSE" {
-					clientMsg.Message = fmt.Sprintf("---- %s님이 퇴장하셨습니다. ----", clientMsg.User)
-				}
-				select {
-				case client.Send <- clientMsg:
-				default:
-					// Slow client: close and remove.
-					close(client.Send)
-					delete(h.Clients, client)
-				}
+			} else {
+				// Fallback mode: direct local broadcast (original behaviour).
+				h.broadcastLocal(msg)
 			}
-			h.mu.Unlock()
+
+		case data := <-redisCh:
+			// Message received from Redis (from this or another server instance).
+			var msg mongodb.ChatMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				logger.Logger.Warnw("Redis message unmarshal failed",
+					"room_id", h.RoomID, "error", err)
+				continue
+			}
+			h.broadcastLocal(msg)
 		}
 	}
+}
+
+// broadcastLocal fans out msg to all locally connected clients.
+func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
+	msgFulltxt := msg.Message
+	h.mu.Lock()
+	for client := range h.Clients {
+		clientMsg := msg
+		clientMsg.Message = msgFulltxt
+		if client.Username == msg.User {
+			clientMsg.Owner = true
+		} else {
+			clientMsg.Owner = false
+		}
+		if clientMsg.Event == "OPEN" {
+			clientMsg.Message = fmt.Sprintf("---- %s님이 입장하셨습니다. ----", clientMsg.User)
+		} else if clientMsg.Event == "CLOSE" {
+			clientMsg.Message = fmt.Sprintf("---- %s님이 퇴장하셨습니다. ----", clientMsg.User)
+		}
+		select {
+		case client.Send <- clientMsg:
+		default:
+			// Slow client: close and remove.
+			close(client.Send)
+			delete(h.Clients, client)
+		}
+	}
+	h.mu.Unlock()
 }
 
 // GetMemberNames returns unique usernames of connected clients
@@ -256,13 +311,22 @@ func (h *Hub) GetMemberNames() []string {
 
 // RoomManager manages all room hubs
 type roomManager struct {
-	hubs map[string]*Hub
-	mu   sync.RWMutex
+	hubs   map[string]*Hub
+	mu     sync.RWMutex
+	broker *redisclient.Broker
 }
 
 // RoomMgr is the global room manager instance
 var RoomMgr = &roomManager{
 	hubs: make(map[string]*Hub),
+}
+
+// SetBroker sets the Redis Pub/Sub broker on the room manager.
+// New hubs created after this call will use the broker.
+func (rm *roomManager) SetBroker(broker *redisclient.Broker) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	rm.broker = broker
 }
 
 func (rm *roomManager) GetOrCreateHub(roomID string) *Hub {
@@ -271,7 +335,7 @@ func (rm *roomManager) GetOrCreateHub(roomID string) *Hub {
 	if hub, ok := rm.hubs[roomID]; ok {
 		return hub
 	}
-	hub := NewHub(roomID)
+	hub := NewHub(roomID, rm.broker)
 	rm.hubs[roomID] = hub
 	go hub.Run()
 	return hub
@@ -316,6 +380,9 @@ func (rm *roomManager) ShutdownAll() {
 		}
 		hub.mu.Unlock()
 		delete(rm.hubs, id)
+	}
+	if rm.broker != nil {
+		rm.broker.Close()
 	}
 }
 

@@ -91,7 +91,7 @@ func makeClient(t *testing.T, username, roomID string) (*Client, *websocket.Conn
 // -------------------------------------------------------------------
 
 func TestNewHub(t *testing.T) {
-	hub := NewHub("room-1")
+	hub := NewHub("room-1", nil)
 	if hub.RoomID != "room-1" {
 		t.Errorf("expected RoomID=room-1, got %s", hub.RoomID)
 	}
@@ -117,7 +117,7 @@ func TestNewHub(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_RegisterClient(t *testing.T) {
-	hub := NewHub("room-reg")
+	hub := NewHub("room-reg", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -141,7 +141,7 @@ func TestHub_RegisterClient(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_UnregisterClient(t *testing.T) {
-	hub := NewHub("room-unreg")
+	hub := NewHub("room-unreg", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -168,7 +168,7 @@ func TestHub_UnregisterClient(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_Broadcast(t *testing.T) {
-	hub := NewHub("room-bcast")
+	hub := NewHub("room-bcast", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -209,7 +209,7 @@ func TestHub_Broadcast(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_BroadcastOwnerFlag(t *testing.T) {
-	hub := NewHub("room-owner")
+	hub := NewHub("room-owner", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -281,7 +281,7 @@ func TestHub_BroadcastOwnerFlag(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_BroadcastOpenEvent(t *testing.T) {
-	hub := NewHub("room-open")
+	hub := NewHub("room-open", nil)
 	go hub.Run()
 	defer close(hub.stop)
 
@@ -315,7 +315,7 @@ func TestHub_BroadcastOpenEvent(t *testing.T) {
 // -------------------------------------------------------------------
 
 func TestHub_BroadcastCloseEvent(t *testing.T) {
-	hub := NewHub("room-close")
+	hub := NewHub("room-close", nil)
 	go hub.Run()
 	defer close(hub.stop)
 

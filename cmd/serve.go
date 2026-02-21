@@ -14,6 +14,7 @@ import (
 	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	redisclient "github.com/woonglife62/woongkie-talkie/pkg/redis"
 	"github.com/woonglife62/woongkie-talkie/server/handler"
 	"github.com/woonglife62/woongkie-talkie/server/router"
 )
@@ -33,6 +34,15 @@ var serveCmd = &cobra.Command{
 			if err := mongodb.InitAll(db.DB); err != nil {
 				logger.Logger.Errorw("MongoDB collections init failed", "error", err)
 			}
+		}
+
+		// Redis initialization (optional - fallback to in-memory if unavailable)
+		if err := redisclient.Initialize(config.RedisConfig.Addr, config.RedisConfig.Password, config.RedisConfig.DB); err != nil {
+			logger.Logger.Warnw("Redis initialization failed - running in fallback mode", "error", err)
+		} else {
+			logger.Logger.Infow("Redis connected", "addr", config.RedisConfig.Addr)
+			broker := redisclient.NewBroker(redisclient.Client())
+			handler.RoomMgr.SetBroker(broker)
 		}
 
 		e := echo.New()
@@ -67,6 +77,9 @@ var serveCmd = &cobra.Command{
 		if err := e.Shutdown(ctx); err != nil {
 			e.Logger.Fatal(err)
 		}
+
+		// Close Redis
+		redisclient.Close()
 
 		// Disconnect MongoDB
 		db.Disconnect()

@@ -1,98 +1,63 @@
 package redisclient
 
-// import (
-// 	"fmt"
-// 	"log"
+import (
+	"context"
+	"fmt"
+	"time"
 
-// 	"github.com/gomodule/redigo/redis"
-// )
+	"github.com/redis/go-redis/v9"
+)
 
-// func connection() redis.Conn {
-// 	c, err := redis.Dial("tcp", "redis:6379")
-// 	if err != nil {
-// 		log.Fatal(err.Error())
-// 	}
+var client *redis.Client
 
-// 	// Connection Check.
-// 	_, err = redis.String(c.Do("PING"))
-// 	if err != nil {
-// 		c.Close()
-// 		log.Fatal(err.Error())
-// 	}
-// 	//fmt.Printf("PING Response = %s\n", pong)
+// Initialize creates and tests a Redis connection with a connection pool.
+func Initialize(addr, password string, db int) error {
+	c := redis.NewClient(&redis.Options{
+		Addr:         addr,
+		Password:     password,
+		DB:           db,
+		PoolSize:     10,
+		MinIdleConns: 3,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+	})
 
-// 	return c
-// }
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-// func redisDo(commandName string, args ...interface{}) ([]string, error) {
-// 	conn := connection()
-// 	defer conn.Close()
-// 	result := new([]string)
-// 	reply, err := conn.Do(commandName, args...)
-// 	if err != nil {
-// 		*result = append(*result, "")
-// 		return *result, err
-// 	}
-// 	switch reply := reply.(type) {
-// 	case []byte:
-// 		*result = append(*result, string(reply))
-// 		return *result, nil
-// 	case string:
-// 		*result = append(*result, reply)
-// 		return *result, nil
-// 	case nil:
-// 		*result = append(*result, "")
-// 		return *result, redis.ErrNil
-// 	case redis.Error:
-// 		*result = append(*result, "")
-// 		return *result, reply
-// 	case int64:
-// 		*result = append(*result, string(fmt.Sprint(reply)))
-// 		return *result, nil
-// 	case []interface{}:
-// 		for i := range reply {
-// 			*result = append(*result, string(reply[i].([]byte))) // type 강제하기
-// 		}
-// 		return *result, nil
-// 	}
+	if _, err := c.Ping(ctx).Result(); err != nil {
+		c.Close()
+		return fmt.Errorf("redis: ping failed: %w", err)
+	}
 
-// 	*result = append(*result, "")
-// 	return *result, fmt.Errorf("redigo: unexpected type for String, got type %T", reply)
+	client = c
+	return nil
+}
 
-// }
+// Close shuts down the Redis client.
+func Close() {
+	if client != nil {
+		client.Close()
+		client = nil
+	}
+}
 
-// func Insert(key string, value string) (reply []string, err error) {
-// 	return redisDo("SET", key, value)
-// }
+// IsAvailable returns true when the client is initialized.
+func IsAvailable() bool {
+	return client != nil
+}
 
-// func Delete(key string) (reply []string, err error) {
-// 	return redisDo("DEL", key)
-// }
+// Ping checks the connection liveness.
+func Ping(ctx context.Context) error {
+	if client == nil {
+		return fmt.Errorf("redis: client not initialized")
+	}
+	_, err := client.Ping(ctx).Result()
+	return err
+}
 
-// func Get(key string) (reply []string, err error) {
-// 	return redisDo("GET", key)
-// }
-
-// func GetAllKeys() (reply []string, err error) {
-// 	return redisDo("KEYS", "*")
-// }
-
-// func HashSet(key string, field string, value string) (reply []string, err error) {
-// 	return redisDo("HSET", key, field, value)
-// }
-
-// func ListLpush(key string, element string) (reply []string, err error) {
-// 	return redisDo("LPUSH", key, element)
-// }
-
-// func ListRpush(key string, element string) (reply []string, err error) {
-// 	return redisDo("RPUSH", key, element)
-// }
-
-// func ListAllLrange(key string) (reply []string, err error) {
-// 	return redisDo("LRANGE", key, 0, -1)
-// }
-
-// func ListAllRrange(key string) (reply []string, err error) {
-// 	return redisDo("RRANGE", key, 0, -1)
-// }
+// Client returns the underlying redis.Client for use in sub-packages.
+func Client() *redis.Client {
+	return client
+}
