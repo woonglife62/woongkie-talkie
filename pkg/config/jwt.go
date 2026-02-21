@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/jinzhu/configor"
-	"github.com/labstack/gommon/log"
 	"gopkg.in/go-playground/validator.v9"
 )
 
@@ -31,13 +30,6 @@ func loadJWT() error {
 	return nil
 }
 
-func init() {
-	validate := validator.New()
-
-	if err := configor.Load(&JWTConfig); err != nil {
-		log.Panic(err)
-	}
-	if err := validate.Struct(JWTConfig); err != nil {
-		log.Panic(err)
-	}
-}
+// init is intentionally left empty. JWT configuration is loaded exclusively
+// via loadJWT() called from LoadAll(), avoiding double-initialization (#99).
+func init() {}

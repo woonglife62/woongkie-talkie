@@ -4,14 +4,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 )
+
+func TestMain(m *testing.M) {
+	logger.Initialize(true)
+	os.Exit(m.Run())
+}
 
 // dialWS opens a WebSocket connection to the given httptest.Server URL path.
 func dialWS(t *testing.T, server *httptest.Server, path string) *websocket.Conn {

@@ -39,7 +39,7 @@ var Config = config{}
 var DBConfig = dbConfig{}
 
 // LoadAll loads and validates all configuration. Returns an error on failure.
-// Called explicitly from cmd/serve.go in addition to the package init().
+// Called explicitly from cmd/serve.go at startup.
 func LoadAll() error {
 	validate := validator.New()
 
@@ -110,49 +110,6 @@ func LoadAll() error {
 	return nil
 }
 
-func init() {
-	validate := validator.New()
-
-	envFilePathsCandidates := []string{
-		".env",
-		os.ExpandEnv("$GOPATH/src/woongkie-talkie/.env"),
-	}
-
-	envFilePath := ""
-	for _, envFilePathsCandidate := range envFilePathsCandidates {
-		if _, ok := os.Stat(envFilePathsCandidate); ok == nil {
-			envFilePath = envFilePathsCandidate
-			break
-		}
-	}
-
-	err := godotenv.Load(envFilePath)
-	if err != nil {
-		log.Error("Error loading .env file. " + err.Error())
-	}
-
-	// config load & validate
-	if err := configor.Load(&Config); err != nil {
-		log.Panic(err)
-	}
-	if err = validate.Struct(Config); err != nil {
-		log.Panic(err)
-	}
-
-	// init logger
-	if Config.IsDev == "DEV" || Config.IsDev == "dev" || Config.IsDev == "develop" {
-		logger.Initialize(true)
-	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" || Config.IsDev == "production" {
-		logger.Initialize(false)
-	} else {
-		log.Panic("IS_DEV value must be filled.")
-	}
-
-	// config load & validate
-	if err := configor.Load(&DBConfig); err != nil {
-		log.Panic(err)
-	}
-	if err = validate.Struct(DBConfig); err != nil {
-		log.Panic(err)
-	}
-}
+// init is intentionally left empty. Configuration is loaded explicitly via
+// LoadAll() from cmd/serve.go, avoiding double-initialization (#99).
+func init() {}

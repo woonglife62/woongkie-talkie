@@ -16,6 +16,20 @@
             outline: 3px solid #4a90d9;
             outline-offset: 2px;
         }
+        .ws-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 9999;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .ws-toast-error { background: #dc3545; color: #fff; }
+        .ws-toast-warning { background: #ffc107; color: #333; }
+        .ws-toast-info { background: #333; color: #fff; }
     </style>
 
     <script src="https://code.jquery.com/jquery-3.6.0.js"
@@ -481,7 +495,13 @@
             };
 
             ws.onmessage = function (event) {
-                var recData = JSON.parse(event.data);
+                var recData;
+                try {
+                    recData = JSON.parse(event.data);
+                } catch (e) {
+                    console.error('WebSocket message parse error:', e);
+                    return;
+                }
                 lastMessageTimestamp = new Date().toISOString();
 
                 if (recData.Event === 'TYPING_START') {
@@ -539,6 +559,7 @@
                     setConnStatus('reconnecting');
                     var $s = $('#conn-status');
                     $s.css('color', '#ffc107').html('&#9679; 서버 재시작 중...');
+                    showToast('서버가 재시작 중입니다. 재연결을 시도합니다...', 'warning');
                     isReconnecting = true;
                     reconnectAttempts++;
                     reconnectTimer = setTimeout(function () {
@@ -553,6 +574,7 @@
                 // 1006 (비정상) 또는 기타: 기존 재연결 로직
                 setConnStatus('disconnected');
                 setConnStatus('reconnecting');
+                showToast('연결이 끊어졌습니다. 재연결을 시도합니다...', 'error');
                 isReconnecting = true;
                 reconnectAttempts++;
                 reconnectTimer = setTimeout(function () {
@@ -610,9 +632,9 @@
             msgTextSpan.setAttribute('class', 'msg-text');
             if (!isAlert && recData.message && validURL(recData.message)) {
                 if (!validProtocol(recData.message)) {
-                    msgTextSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(recData.message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(recData.message) + '</a>';
                 } else {
-                    msgTextSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(recData.message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(recData.message) + '</a>';
                 }
             } else {
                 msgTextSpan.textContent = recData.message;
@@ -670,9 +692,9 @@
 
             if (message && validURL(message)) {
                 if (!validProtocol(message)) {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 } else {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 }
             } else {
                 newTagSpan.textContent = message || '';
@@ -715,9 +737,9 @@
 
             if (message && validURL(message)) {
                 if (!validProtocol(message)) {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 } else {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 }
             } else {
                 newTagSpan.textContent = message;
@@ -975,8 +997,15 @@
         }
 
         function validProtocol(str) {
-            var pattern = /^http[s]?\:\/\//i;
+            // Only allow http and https; block javascript:, data:, etc.
+            var pattern = /^https?:\/\//i;
             return !!pattern.test(str);
+        }
+
+        function safeHref(url) {
+            // Double-check: only return URL if http/https
+            if (/^https?:\/\//i.test(url)) return url;
+            return 'https://' + url;
         }
 
         function escapeHtml(text) {
@@ -984,6 +1013,13 @@
             var div = document.createElement('div');
             div.appendChild(document.createTextNode(text));
             return div.innerHTML;
+        }
+
+        // WebSocket 연결 끊김 UI 알림
+        function showToast(msg, type) {
+            var toast = $('<div class="ws-toast ws-toast-' + (type || 'info') + '">' + escapeHtml(msg) + '</div>');
+            $('body').append(toast);
+            setTimeout(function () { toast.fadeOut(500, function () { toast.remove(); }); }, 5000);
         }
 
         // ── 프로필 ──────────────────────────────────────────────────────
@@ -1082,9 +1118,18 @@
             $('#chat-message').val('');
         });
 
+        // 한글 IME 이중전송 방지
+        var isComposing = false;
+        document.getElementById('chat-message').addEventListener('compositionstart', function () {
+            isComposing = true;
+        });
+        document.getElementById('chat-message').addEventListener('compositionend', function () {
+            isComposing = false;
+        });
+
         // Enter key for the overridden submit
         $('#chat-message').off('keyup').on('keyup', function (e) {
-            if (e.keyCode === 13) {
+            if (e.keyCode === 13 && !isComposing) {
                 $('#submit-btn').click();
             }
         });

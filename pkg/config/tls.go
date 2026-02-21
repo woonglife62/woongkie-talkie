@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/jinzhu/configor"
-	"github.com/labstack/gommon/log"
 )
 
 type tlsConfig struct {
@@ -22,8 +21,6 @@ func loadTLS() error {
 	return nil
 }
 
-func init() {
-	if err := configor.Load(&TLSConfig); err != nil {
-		log.Panic(err)
-	}
-}
+// init is intentionally left empty. TLS configuration is loaded exclusively
+// via loadTLS() called from LoadAll(), avoiding double-initialization (#99).
+func init() {}

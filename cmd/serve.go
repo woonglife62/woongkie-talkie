@@ -90,6 +90,9 @@ var serveCmd = &cobra.Command{
 			e.Logger.Fatal(err)
 		}
 
+		// Drain and close the insert queue so no chat messages are lost (#98).
+		handler.ShutdownInsertQueue()
+
 		// Close Redis
 		redisclient.Close()
 

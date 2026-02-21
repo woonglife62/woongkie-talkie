@@ -37,10 +37,25 @@ var upgrader = websocket.Upgrader{
 // insertQueue is a buffered channel for async MongoDB chat inserts.
 var insertQueue = make(chan mongodb.ChatMessage, insertQueueSize)
 
+// insertWg tracks live insert worker goroutines for graceful shutdown.
+var insertWg sync.WaitGroup
+
 func init() {
 	for i := 0; i < insertWorkers; i++ {
-		go runInsertWorker()
+		insertWg.Add(1)
+		go func() {
+			defer insertWg.Done()
+			runInsertWorker()
+		}()
 	}
+}
+
+// ShutdownInsertQueue closes the insertQueue channel and blocks until all
+// insert workers have flushed their in-flight batches to MongoDB. Call this
+// during graceful server shutdown to prevent message loss (#98).
+func ShutdownInsertQueue() {
+	close(insertQueue)
+	insertWg.Wait()
 }
 
 // runInsertWorker batches messages from insertQueue and bulk-inserts them.
@@ -129,6 +144,11 @@ func (c *Client) writePump() {
 	}
 }
 
+// hubSendTimeout is the maximum time readPump will wait to deliver a message
+// to the hub's Broadcast or Unregister channels. If the hub has already
+// exited, the send would block forever without this guard.
+const hubSendTimeout = 5 * time.Second
+
 // readPump pumps messages from the WebSocket to the hub's Broadcast channel.
 func (c *Client) readPump() {
 	defer func() {
@@ -138,13 +158,30 @@ func (c *Client) readPump() {
 		)
 		metrics.ActiveWSConnections.Dec()
 		// Send CLOSE event to notify other clients.
+		// Use select+timeout to avoid blocking forever if the hub has exited.
 		msg := mongodb.ChatMessage{
 			Event:  "CLOSE",
 			User:   c.Username,
 			RoomID: c.RoomID,
 		}
-		c.Hub.Broadcast <- msg
-		c.Hub.Unregister <- c
+		select {
+		case c.Hub.Broadcast <- msg:
+		case <-c.Hub.stop:
+		case <-time.After(hubSendTimeout):
+			logger.Logger.Warnw("readPump: Broadcast send timed out, hub may be gone",
+				"room_id", c.RoomID,
+				"username", c.Username,
+			)
+		}
+		select {
+		case c.Hub.Unregister <- c:
+		case <-c.Hub.stop:
+		case <-time.After(hubSendTimeout):
+			logger.Logger.Warnw("readPump: Unregister send timed out, hub may be gone",
+				"room_id", c.RoomID,
+				"username", c.Username,
+			)
+		}
 	}()
 
 	c.Conn.SetReadLimit(maxMessageSize)
@@ -176,7 +213,11 @@ func (c *Client) readPump() {
 		if msg.Event != "OPEN" {
 			// Typing events: update Redis presence and broadcast without saving to MongoDB
 			if msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP" {
-				c.Hub.Broadcast <- msg
+				select {
+				case c.Hub.Broadcast <- msg:
+				case <-c.Hub.stop:
+					return
+				}
 				continue
 			}
 
@@ -230,7 +271,11 @@ func (c *Client) readPump() {
 			}
 		}
 
-		c.Hub.Broadcast <- msg
+		select {
+		case c.Hub.Broadcast <- msg:
+		case <-c.Hub.stop:
+			return
+		}
 	}
 }
 

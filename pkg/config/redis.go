@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/jinzhu/configor"
-	"github.com/labstack/gommon/log"
 )
 
 type redisConfig struct {
@@ -23,8 +22,6 @@ func loadRedis() error {
 	return nil
 }
 
-func init() {
-	if err := configor.Load(&RedisConfig); err != nil {
-		log.Panic(err)
-	}
-}
+// init is intentionally left empty. Redis configuration is loaded exclusively
+// via loadRedis() called from LoadAll(), avoiding double-initialization (#99).
+func init() {}

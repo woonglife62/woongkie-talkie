@@ -94,16 +94,25 @@ func (h *Hub) Run() {
 
 		case <-idleTimer.C:
 			// Auto-shutdown hub after idle timeout with no clients.
+			// Fix #97 (TOCTOU): first check without RoomMgr lock, then re-confirm
+			// under RoomMgr.mu to make the emptiness check and hub removal atomic
+			// with respect to GetOrCreateHub (which also locks RoomMgr.mu).
 			h.mu.RLock()
 			empty := len(h.Clients) == 0
 			h.mu.RUnlock()
 			if empty {
-				logger.Logger.Infow("hub idle timeout, shutting down",
-					"room_id", h.RoomID)
 				RoomMgr.mu.Lock()
-				delete(RoomMgr.hubs, h.RoomID)
+				h.mu.RLock()
+				stillEmpty := len(h.Clients) == 0
+				h.mu.RUnlock()
+				if stillEmpty {
+					delete(RoomMgr.hubs, h.RoomID)
+					RoomMgr.mu.Unlock()
+					logger.Logger.Infow("hub idle timeout, shutting down",
+						"room_id", h.RoomID)
+					return
+				}
 				RoomMgr.mu.Unlock()
-				return
 			}
 			// Still has clients; reset the timer.
 			idleTimer.Reset(config.HubIdleTimeout)
@@ -218,6 +227,8 @@ func isAllowedEvent(event string) bool {
 }
 
 // broadcastLocal fans out msg to all locally connected clients.
+// It takes a snapshot of the client list under a read lock to avoid holding
+// the mutex while performing channel sends, preventing potential deadlocks.
 func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
 	isTyping := msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP"
 
@@ -232,8 +243,21 @@ func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
 	}
 
 	msgFulltxt := msg.Message
-	h.mu.Lock()
+
+	// Take a snapshot of clients under a read lock to avoid holding the mutex
+	// during channel sends, which could otherwise cause a deadlock if a client's
+	// writePump goroutine is blocked waiting on the hub's run loop.
+	h.mu.RLock()
+	snapshot := make([]*Client, 0, len(h.Clients))
 	for client := range h.Clients {
+		snapshot = append(snapshot, client)
+	}
+	h.mu.RUnlock()
+
+	// Collect slow clients that need to be evicted (Send channel full).
+	var evict []*Client
+
+	for _, client := range snapshot {
 		// Do not send typing events back to the sender
 		if isTyping && client.Username == msg.User {
 			continue
@@ -254,12 +278,22 @@ func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
 		select {
 		case client.Send <- clientMsg:
 		default:
-			// Slow client: close and remove.
-			client.closeSend()
-			delete(h.Clients, client)
+			// Slow client: mark for eviction.
+			evict = append(evict, client)
 		}
 	}
-	h.mu.Unlock()
+
+	// Evict slow clients under a write lock.
+	if len(evict) > 0 {
+		h.mu.Lock()
+		for _, client := range evict {
+			if _, ok := h.Clients[client]; ok {
+				client.closeSend()
+				delete(h.Clients, client)
+			}
+		}
+		h.mu.Unlock()
+	}
 }
 
 // GetMemberNames returns unique usernames of connected clients
