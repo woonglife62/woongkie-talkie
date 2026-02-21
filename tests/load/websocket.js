@@ -16,14 +16,14 @@ export const options = {
 
 export function setup() {
   const loginRes = http.post(
-    `${BASE_URL}/api/auth/login`,
+    `${BASE_URL}/auth/login`,
     JSON.stringify({ username: 'loadtest', password: 'loadtest123' }),
     { headers: { 'Content-Type': 'application/json' } }
   );
   const token = loginRes.json('token');
 
   // Get a room to connect to
-  const roomsRes = http.get(`${BASE_URL}/api/rooms`, {
+  const roomsRes = http.get(`${BASE_URL}/rooms`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const rooms = roomsRes.json();

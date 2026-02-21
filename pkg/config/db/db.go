@@ -44,6 +44,8 @@ func Initialize() error {
 
 func Disconnect() {
 	if Client != nil {
-		Client.Disconnect(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		Client.Disconnect(ctx)
 	}
 }

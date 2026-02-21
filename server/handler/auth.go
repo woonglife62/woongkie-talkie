@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -9,6 +10,8 @@ import (
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 )
+
+var usernameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,30}$`)
 
 type RegisterRequest struct {
 	Username    string `json:"username"`
@@ -32,8 +35,8 @@ func RegisterHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
 	}
 
-	if len(req.Username) < 3 || len(req.Username) > 30 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상 30자 이하이어야 합니다"})
+	if !usernameRegexp.MatchString(req.Username) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상 30자 이하의 영문자, 숫자, _, -만 사용 가능합니다"})
 	}
 	if len(req.Password) < 6 || len(req.Password) > 72 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 6자 이상 72자 이하이어야 합니다"})

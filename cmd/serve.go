@@ -26,6 +26,11 @@ var serveCmd = &cobra.Command{
 	Long: `
 1. Start Simple Chat Server.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Explicitly load all config (returns errors instead of panicking)
+		if err := config.LoadAll(); err != nil {
+			logger.Logger.Fatalw("Config loading failed", "error", err)
+		}
+
 		// pprof profiling server (dev mode only)
 		if config.Config.IsDev == "dev" || config.Config.IsDev == "DEV" || config.Config.IsDev == "develop" {
 			go func() {
@@ -36,8 +41,7 @@ var serveCmd = &cobra.Command{
 
 		// Explicit MongoDB initialization
 		if err := db.Initialize(); err != nil {
-			logger.Logger.Warnw("MongoDB initialization failed", "error", err)
-			// Don't fatal - allow running without DB for development
+			logger.Logger.Fatalw("MongoDB initialization failed", "error", err)
 		}
 		if db.DB != nil {
 			if err := mongodb.InitAll(db.DB); err != nil {

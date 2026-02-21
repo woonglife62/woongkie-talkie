@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/jinzhu/configor"
@@ -28,10 +29,9 @@ var Config = config{}
 
 var DBConfig = dbConfig{}
 
-func init() {
-
-	var err error
-
+// LoadAll loads and validates all configuration. Returns an error on failure.
+// Called explicitly from cmd/serve.go in addition to the package init().
+func LoadAll() error {
 	validate := validator.New()
 
 	envFilePathsCandidates := []string{
@@ -47,7 +47,65 @@ func init() {
 		}
 	}
 
-	err = godotenv.Load(envFilePath)
+	if err := godotenv.Load(envFilePath); err != nil {
+		log.Error("Error loading .env file. " + err.Error())
+	}
+
+	if err := configor.Load(&Config); err != nil {
+		return fmt.Errorf("config load error: %w", err)
+	}
+	if err := validate.Struct(Config); err != nil {
+		return fmt.Errorf("config validation error: %w", err)
+	}
+
+	// init logger
+	if Config.IsDev == "DEV" || Config.IsDev == "dev" || Config.IsDev == "develop" {
+		logger.Initialize(true)
+	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" || Config.IsDev == "production" {
+		logger.Initialize(false)
+	} else {
+		return fmt.Errorf("IS_DEV value must be filled")
+	}
+
+	if err := configor.Load(&DBConfig); err != nil {
+		return fmt.Errorf("db config load error: %w", err)
+	}
+	if err := validate.Struct(DBConfig); err != nil {
+		return fmt.Errorf("db config validation error: %w", err)
+	}
+
+	if err := loadJWT(); err != nil {
+		return fmt.Errorf("jwt config error: %w", err)
+	}
+
+	if err := loadRedis(); err != nil {
+		return fmt.Errorf("redis config error: %w", err)
+	}
+
+	if err := loadTLS(); err != nil {
+		return fmt.Errorf("tls config error: %w", err)
+	}
+
+	return nil
+}
+
+func init() {
+	validate := validator.New()
+
+	envFilePathsCandidates := []string{
+		".env",
+		os.ExpandEnv("$GOPATH/src/woongkie-talkie/.env"),
+	}
+
+	envFilePath := ""
+	for _, envFilePathsCandidate := range envFilePathsCandidates {
+		if _, ok := os.Stat(envFilePathsCandidate); ok == nil {
+			envFilePath = envFilePathsCandidate
+			break
+		}
+	}
+
+	err := godotenv.Load(envFilePath)
 	if err != nil {
 		log.Error("Error loading .env file. " + err.Error())
 	}
@@ -63,7 +121,7 @@ func init() {
 	// init logger
 	if Config.IsDev == "DEV" || Config.IsDev == "dev" || Config.IsDev == "develop" {
 		logger.Initialize(true)
-	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" {
+	} else if Config.IsDev == "PROD" || Config.IsDev == "prod" || Config.IsDev == "product" || Config.IsDev == "production" {
 		logger.Initialize(false)
 	} else {
 		log.Panic("IS_DEV value must be filled.")
@@ -76,5 +134,4 @@ func init() {
 	if err = validate.Struct(DBConfig); err != nil {
 		log.Panic(err)
 	}
-
 }

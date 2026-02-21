@@ -15,7 +15,7 @@ export const options = {
 export function setup() {
   // Login to get a token for subsequent requests
   const loginRes = http.post(
-    `${BASE_URL}/api/auth/login`,
+    `${BASE_URL}/auth/login`,
     JSON.stringify({ username: 'loadtest', password: 'loadtest123' }),
     { headers: { 'Content-Type': 'application/json' } }
   );
@@ -30,7 +30,7 @@ export default function (data) {
   };
 
   // List chat rooms
-  const roomsRes = http.get(`${BASE_URL}/api/rooms`, { headers });
+  const roomsRes = http.get(`${BASE_URL}/rooms`, { headers });
   check(roomsRes, {
     'list rooms status 200': (r) => r.status === 200,
   });
@@ -39,7 +39,7 @@ export default function (data) {
   const rooms = roomsRes.json();
   if (rooms && rooms.length > 0) {
     const roomId = rooms[0]._id || rooms[0].id;
-    const msgsRes = http.get(`${BASE_URL}/api/rooms/${roomId}/messages`, { headers });
+    const msgsRes = http.get(`${BASE_URL}/rooms/${roomId}/messages`, { headers });
     check(msgsRes, {
       'get messages status 200': (r) => r.status === 200,
     });

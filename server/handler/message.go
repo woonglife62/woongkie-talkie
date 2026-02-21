@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -18,6 +19,9 @@ type ReplyMessageRequest struct {
 
 // PUT /rooms/:id/messages/:msgId
 func EditMessageHandler(c echo.Context) error {
+	if err := requireRoomMember(c); err != nil {
+		return err
+	}
 	roomID := c.Param("id")
 	msgID := c.Param("msgId")
 	username := GetUsername(c)
@@ -35,12 +39,12 @@ func EditMessageHandler(c echo.Context) error {
 
 	updated, err := mongodb.EditChat(msgID, username, req.Message)
 	if err != nil {
-		switch err.Error() {
-		case "forbidden":
+		switch {
+		case errors.Is(err, mongodb.ErrForbidden):
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "수정 권한이 없습니다"})
-		case "edit window expired":
+		case errors.Is(err, mongodb.ErrEditWindowExpired):
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "5분이 지나 수정할 수 없습니다"})
-		case "message deleted":
+		case errors.Is(err, mongodb.ErrMessageDeleted):
 			return c.JSON(http.StatusGone, map[string]string{"error": "삭제된 메시지입니다"})
 		default:
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "메시지를 찾을 수 없습니다"})
@@ -64,6 +68,9 @@ func EditMessageHandler(c echo.Context) error {
 
 // DELETE /rooms/:id/messages/:msgId
 func DeleteMessageHandler(c echo.Context) error {
+	if err := requireRoomMember(c); err != nil {
+		return err
+	}
 	roomID := c.Param("id")
 	msgID := c.Param("msgId")
 	username := GetUsername(c)
@@ -73,8 +80,8 @@ func DeleteMessageHandler(c echo.Context) error {
 
 	err := mongodb.DeleteChat(msgID, username)
 	if err != nil {
-		switch err.Error() {
-		case "forbidden":
+		switch {
+		case errors.Is(err, mongodb.ErrForbidden):
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "삭제 권한이 없습니다"})
 		default:
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "메시지를 찾을 수 없습니다"})
@@ -97,6 +104,9 @@ func DeleteMessageHandler(c echo.Context) error {
 
 // POST /rooms/:id/messages/:msgId/reply
 func ReplyMessageHandler(c echo.Context) error {
+	if err := requireRoomMember(c); err != nil {
+		return err
+	}
 	roomID := c.Param("id")
 	msgID := c.Param("msgId")
 	username := GetUsername(c)

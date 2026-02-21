@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: woongkie-talkie-pdb
+  namespace: woongkie-talkie
+  labels:
+    app.kubernetes.io/name: woongkie-talkie
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: woongkie-talkie

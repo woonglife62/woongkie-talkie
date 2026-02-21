@@ -13,6 +13,9 @@ func securityHeaders(e *echo.Echo) {
 			c.Response().Header().Set("X-Frame-Options", "DENY")
 			c.Response().Header().Set("X-XSS-Protection", "1; mode=block")
 			c.Response().Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			// WARNING: 'unsafe-inline' in script-src and style-src weakens CSP protection.
+			// TODO: Replace with nonce-based CSP (e.g. 'nonce-{random}') for stronger security.
+			// See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src
 			c.Response().Header().Set("Content-Security-Policy",
 				"default-src 'self'; "+
 					"script-src 'self' 'unsafe-inline' https://code.jquery.com https://cdn.jsdelivr.net; "+

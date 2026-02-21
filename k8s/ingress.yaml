@@ -15,14 +15,12 @@ metadata:
     nginx.ingress.kubernetes.io/configuration-snippet: |
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
-    # TLS: uncomment and configure cert-manager if using Let's Encrypt
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
-  # TLS: replace 'your-domain.com' with actual domain and configure certificate
-  # tls:
-  #   - hosts:
-  #       - your-domain.com
-  #     secretName: woongkie-talkie-tls
+  tls:
+    - hosts:
+        - your-domain.com  # TODO: replace with actual domain
+      secretName: woongkie-talkie-tls
   rules:
     - host: your-domain.com  # TODO: replace with actual domain
       http:

@@ -15,6 +15,13 @@ spec:
       labels:
         app.kubernetes.io/name: woongkie-talkie
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: woongkie-talkie
       containers:
         - name: woongkie-talkie
           image: woongkie-talkie:latest
@@ -32,7 +39,7 @@ spec:
               memory: "128Mi"
               cpu: "125m"
             limits:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "250m"
           livenessProbe:
             httpGet:

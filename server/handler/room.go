@@ -132,7 +132,9 @@ func JoinRoomHandler(c echo.Context) error {
 	// 비공개 방 비밀번호 확인 (bcrypt)
 	if !room.IsPublic && room.Password != "" {
 		var req JoinRoomRequest
-		c.Bind(&req)
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
+		}
 		if !mongodb.CheckRoomPassword(room, req.Password) {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "비밀번호가 올바르지 않습니다"})
 		}
@@ -166,6 +168,9 @@ type MessagesResponse struct {
 
 // GET /rooms/:id/messages
 func GetRoomMessagesHandler(c echo.Context) error {
+	if err := requireRoomMember(c); err != nil {
+		return err
+	}
 	id := c.Param("id")
 
 	beforeStr := c.QueryParam("before")

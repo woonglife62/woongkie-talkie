@@ -13,12 +13,12 @@ services:
       - IS_DEV=prod
       - MONGODB_URI=mongodb://mongodb:27017
       - MONGODB_USER=${MONGODB_USER:-root}
-      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-1234}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-change-this-password}
       - MONGODB_DATABASE=woongkietalkie
       - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
       - JWT_EXPIRY=24h
       - REDIS_ADDR=redis:6379
-      - REDIS_PASSWORD=
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis123}
       - REDIS_DB=0
     depends_on:
       - mongodb
@@ -43,8 +43,7 @@ services:
     container_name: mongodb
     hostname: mongodb
     restart: unless-stopped
-    ports:
-      - 27017:27017
+    # No host port binding - accessible only within app-network
     volumes:
       - mongodb_data:/data/db
     environment:
@@ -66,13 +65,13 @@ services:
     restart: unless-stopped
     ports:
       - 6379:6379
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-redis123}
     volumes:
       - redis_data:/data
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 3

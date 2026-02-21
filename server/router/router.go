@@ -34,6 +34,9 @@ func Router(e *echo.Echo) {
 	e.GET("/health", handler.HealthHandler)
 	e.GET("/ready", handler.ReadyHandler)
 
+	// Prometheus 메트릭 (인증 불필요)
+	e.GET("/metrics", handler.MetricsHandler())
+
 	// 인증 엔드포인트 (미들웨어에서 스킵됨, 별도 rate limit 적용)
 	e.POST("/auth/register", handler.RegisterHandler, middleware.AuthRateLimit())
 	e.POST("/auth/login", handler.LoginHandler, middleware.AuthRateLimit())
@@ -44,7 +47,7 @@ func Router(e *echo.Echo) {
 
 	// 기존 호환 엔드포인트
 	e.GET("/client", handler.ChatHTMLRender)
-	e.GET("/server", handler.MsgReceiver)
+	e.GET("/server", handler.MsgReceiver, middleware.WSConnLimit())
 
 	// 채팅방 REST API
 	e.GET("/rooms/default", handler.GetDefaultRoomHandler)
@@ -54,7 +57,7 @@ func Router(e *echo.Echo) {
 	e.DELETE("/rooms/:id", handler.DeleteRoomHandler)
 	e.POST("/rooms/:id/join", handler.JoinRoomHandler)
 	e.POST("/rooms/:id/leave", handler.LeaveRoomHandler)
-	e.GET("/rooms/:id/ws", handler.RoomWebSocket)
+	e.GET("/rooms/:id/ws", handler.RoomWebSocket, middleware.WSConnLimit())
 	e.GET("/rooms/:id/messages", handler.GetRoomMessagesHandler)
 	e.PUT("/rooms/:id/messages/:msgId", handler.EditMessageHandler)
 	e.DELETE("/rooms/:id/messages/:msgId", handler.DeleteMessageHandler)

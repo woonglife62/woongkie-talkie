@@ -2,7 +2,6 @@ package mongodb
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -123,7 +122,8 @@ func migrateChatSchema(ctx context.Context) error {
 }
 
 // chat message 저장 (room_id 포함)
-func InsertChat(chatMessage ChatMessage) error {
+// Returns the inserted document ID as a hex string and any error.
+func InsertChat(chatMessage ChatMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -136,8 +136,14 @@ func InsertChat(chatMessage ChatMessage) error {
 		Owner:     chatMessage.Owner,
 	}
 
-	_, err := chatCollection.InsertOne(ctx, chat)
-	return err
+	result, err := chatCollection.InsertOne(ctx, chat)
+	if err != nil {
+		return "", err
+	}
+	if oid, ok := result.InsertedID.(primitive.ObjectID); ok {
+		return oid.Hex(), nil
+	}
+	return "", nil
 }
 
 // room별 chat 내용 가져오기 (최근 100건)
@@ -147,7 +153,10 @@ func FindChatByRoom(roomID string) (chat []Chat, err error) {
 
 	chat = []Chat{}
 
-	filter := bson.D{{Key: "room_id", Value: roomID}}
+	filter := bson.D{
+		{Key: "room_id", Value: roomID},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
+	}
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(100)
 
 	cur, err := chatCollection.Find(ctx, filter, opts)
@@ -246,7 +255,8 @@ func FindChat() (chat []Chat, err error) {
 
 	chat = []Chat{}
 
-	cur, err := chatCollection.Find(ctx, bson.D{})
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(500)
+	cur, err := chatCollection.Find(ctx, bson.D{}, opts)
 	if err != nil {
 		return chat, err
 	}
@@ -300,13 +310,13 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 	}
 
 	if chat.User != username {
-		return nil, errors.New("forbidden")
+		return nil, ErrForbidden
 	}
 	if time.Since(chat.CreatedAt) > 5*time.Minute {
-		return nil, errors.New("edit window expired")
+		return nil, ErrEditWindowExpired
 	}
 	if chat.IsDeleted {
-		return nil, errors.New("message deleted")
+		return nil, ErrMessageDeleted
 	}
 
 	now := time.Now()
@@ -340,7 +350,7 @@ func DeleteChat(messageID, username string) error {
 	}
 
 	if chat.User != username {
-		return errors.New("forbidden")
+		return ErrForbidden
 	}
 
 	update := bson.D{{Key: "$set", Value: bson.D{

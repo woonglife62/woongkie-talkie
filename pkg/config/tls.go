@@ -1,6 +1,11 @@
 package config
 
-import "github.com/jinzhu/configor"
+import (
+	"fmt"
+
+	"github.com/jinzhu/configor"
+	"github.com/labstack/gommon/log"
+)
 
 type tlsConfig struct {
 	CertFile string `env:"TLS_CERT_FILE"`
@@ -9,6 +14,16 @@ type tlsConfig struct {
 
 var TLSConfig = tlsConfig{}
 
+// loadTLS loads TLS configuration. Called from LoadAll().
+func loadTLS() error {
+	if err := configor.Load(&TLSConfig); err != nil {
+		return fmt.Errorf("tls configor load: %w", err)
+	}
+	return nil
+}
+
 func init() {
-	configor.Load(&TLSConfig)
+	if err := configor.Load(&TLSConfig); err != nil {
+		log.Panic(err)
+	}
 }

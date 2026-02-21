@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: woongkie-talkie
 data:
-  IS_DEV: "production"
+  IS_DEV: "prod"
   MONGODB_URI: "mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@mongodb:27017"
   MONGODB_DATABASE: "woongkie_talkie"
   REDIS_ADDR: "redis:6379"
