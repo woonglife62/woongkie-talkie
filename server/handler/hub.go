@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"github.com/woonglife62/woongkie-talkie/pkg/metrics"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
@@ -39,12 +40,14 @@ func NewHub(roomID string, broker *redisclient.Broker) *Hub {
 	}
 }
 
-// closeAllClients closes all client Send channels and clears the map.
-// Must be called with h.mu held.
+// closeAllClients sends a graceful close frame to every client, then closes
+// the connection. Must be called with h.mu held.
 func (h *Hub) closeAllClients() {
+	closeMsg := websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down")
 	for client := range h.Clients {
 		client.closeSend()
 		if client.Conn != nil {
+			_ = client.Conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(writeWait))
 			client.Conn.Close()
 		}
 		delete(h.Clients, client)

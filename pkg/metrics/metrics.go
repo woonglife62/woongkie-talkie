@@ -23,4 +23,10 @@ var (
 		Name: "woongkie_rooms_active",
 		Help: "Number of rooms with an active WebSocket hub.",
 	})
+
+	// MessagesDropped counts messages dropped due to a full insertQueue.
+	MessagesDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "woongkie_messages_dropped_total",
+		Help: "Total number of chat messages dropped because insertQueue was full.",
+	})
 )

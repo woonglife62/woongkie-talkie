@@ -12,7 +12,7 @@ const (
 	typingSetPrefix    = "typing:room:"             // SET key: typing:room:{roomID}
 	typingUserPrefix   = "typing:user:"             // STRING key: typing:user:{roomID}:{username} (TTL)
 	presenceTTL        = 5 * time.Minute
-	typingTTL          = 10 * time.Second
+	typingTTL          = 5 * time.Second
 )
 
 // presenceSetKey returns the Redis Set key tracking all online users in a room.

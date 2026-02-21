@@ -2,11 +2,15 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jinzhu/configor"
 	"github.com/labstack/gommon/log"
 	"gopkg.in/go-playground/validator.v9"
 )
+
+// RefreshGracePeriod is the maximum time after token expiry during which a refresh is still allowed.
+const RefreshGracePeriod = 24 * time.Hour
 
 type jwtConfig struct {
 	Secret string `env:"JWT_SECRET" validate:"required,min=32"`

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -408,6 +409,45 @@ func TestRoomManager_GetOnlineMembers_NoHub(t *testing.T) {
 	members := rm.GetOnlineMembers("does-not-exist")
 	if members == nil || len(members) != 0 {
 		t.Errorf("expected empty slice for missing room, got %v", members)
+	}
+}
+
+// -------------------------------------------------------------------
+// Race condition: concurrent Register/Unregister
+// -------------------------------------------------------------------
+
+func TestHub_ConcurrentRegisterUnregister(t *testing.T) {
+	hub := NewHub("room-race-reg", nil)
+	go hub.Run()
+	defer close(hub.stop)
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			username := fmt.Sprintf("user%d", idx)
+			client, _, cleanup := makeClient(t, username, "room-race-reg")
+			defer cleanup()
+
+			hub.Register <- client
+			time.Sleep(10 * time.Millisecond)
+			hub.Unregister <- client
+		}(i)
+	}
+
+	wg.Wait()
+	// Allow hub to drain all pending register/unregister operations.
+	time.Sleep(100 * time.Millisecond)
+
+	hub.mu.RLock()
+	count := len(hub.Clients)
+	hub.mu.RUnlock()
+
+	if count != 0 {
+		t.Errorf("expected 0 clients after all goroutines finish, got %d", count)
 	}
 }
 

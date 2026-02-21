@@ -224,6 +224,9 @@
         var oldestTimestamp = null;
         var lastMessageTimestamp = null;
 
+        // DOM 가상화: 화면에 유지할 최대 메시지 수
+        var MAX_DOM_MESSAGES = 200;
+
         // 타이핑 인디케이터 상태
         var isTyping = false;
         var typingTimer = null;
@@ -232,17 +235,94 @@
         // 모든 AJAX 요청에 JWT 토큰 헤더 추가
         $.ajaxSetup({
             headers: {
-                'Authorization': 'Bearer ' + token
-            },
-            statusCode: {
-                401: function () {
-                    // 토큰 만료/무효 시 로그인 페이지로
+                'Authorization': 'Bearer ' + token,
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+
+        // JWT 토큰 갱신
+        function refreshToken() {
+            return $.ajax({
+                url: '/auth/refresh',
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            }).then(function (data) {
+                token = data.token;
+                localStorage.setItem('token', token);
+                $.ajaxSetup({ headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' } });
+            });
+        }
+
+        // authFetch: native fetch를 감싸 401 시 토큰 갱신 후 재시도
+        function authFetch(url, options) {
+            options = options || {};
+            options.headers = options.headers || {};
+            options.headers['Authorization'] = 'Bearer ' + token;
+            options.headers['X-Requested-With'] = 'XMLHttpRequest';
+            return fetch(url, options).then(function (response) {
+                if (response.status !== 401) {
+                    return response;
+                }
+                return fetch('/auth/refresh', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (refreshResp) {
+                    if (!refreshResp.ok) {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        window.location.href = '/login';
+                        return;
+                    }
+                    return refreshResp.json().then(function (data) {
+                        token = data.token;
+                        localStorage.setItem('token', token);
+                        $.ajaxSetup({ headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' } });
+                        options.headers['Authorization'] = 'Bearer ' + token;
+                        return fetch(url, options);
+                    });
+                });
+            });
+        }
+
+        // $.ajax 401 처리: 갱신 후 재시도, 실패 시 로그인 페이지로
+        $(document).ajaxError(function (event, jqXHR, ajaxSettings) {
+            if (jqXHR.status === 401 && ajaxSettings.url !== '/auth/refresh') {
+                refreshToken().then(function () {
+                    $.ajax(ajaxSettings);
+                }).fail(function () {
                     localStorage.removeItem('token');
                     localStorage.removeItem('username');
                     window.location.href = '/login';
-                }
+                });
             }
         });
+
+        // 토큰 만료 5분 전 선제적 갱신
+        function scheduleTokenRefresh() {
+            try {
+                var payload = JSON.parse(atob(token.split('.')[1]));
+                var exp = payload.exp * 1000;
+                var delay = exp - Date.now() - 5 * 60 * 1000;
+                if (delay > 0) {
+                    setTimeout(function () {
+                        refreshToken().then(function () {
+                            scheduleTokenRefresh();
+                        }).fail(function () {
+                            localStorage.removeItem('token');
+                            localStorage.removeItem('username');
+                            window.location.href = '/login';
+                        });
+                    }, delay);
+                } else {
+                    refreshToken().then(function () {
+                        scheduleTokenRefresh();
+                    });
+                }
+            } catch (e) {
+                console.warn('토큰 파싱 실패, 선제적 갱신 비활성화:', e);
+            }
+        }
+        scheduleTokenRefresh();
 
         // 초기화
         $(document).ready(function () {
@@ -456,7 +536,7 @@
                     typingUsers[recData.User] = setTimeout(function () {
                         delete typingUsers[recData.User];
                         updateTypingIndicator();
-                    }, 3000);
+                    }, 5000);
                     updateTypingIndicator();
                     return;
                 }
@@ -481,13 +561,41 @@
                 appendMessage(recData);
             };
 
-            ws.onclose = function () {
+            ws.onclose = function (event) {
                 // 방이 전환된 경우(currentRoomID 변경) 재연결하지 않음
                 if (currentRoomID !== roomId) {
                     return;
                 }
+
+                var code = event.code;
+                console.log('WebSocket closed for room: ' + roomId + ', code: ' + code);
+
+                if (code === 1000) {
+                    // 정상 종료 - 재연결 안 함
+                    setConnStatus('disconnected');
+                    var $s = $('#conn-status');
+                    $s.css('color', '#6c757d').html('&#9679; 연결 종료');
+                    return;
+                }
+
+                if (code === 1001) {
+                    // 서버 종료/페이지 이탈 - 재연결 시도
+                    setConnStatus('reconnecting');
+                    var $s = $('#conn-status');
+                    $s.css('color', '#ffc107').html('&#9679; 서버 재시작 중...');
+                    isReconnecting = true;
+                    reconnectAttempts++;
+                    reconnectTimer = setTimeout(function () {
+                        if (currentRoomID === roomId) {
+                            connectWebSocket(roomId);
+                        }
+                    }, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                    return;
+                }
+
+                // 1006 (비정상) 또는 기타: 기존 재연결 로직
                 setConnStatus('disconnected');
-                console.log('WebSocket closed for room: ' + roomId + '. Reconnecting in ' + reconnectDelay + 'ms');
                 setConnStatus('reconnecting');
                 isReconnecting = true;
                 reconnectAttempts++;
@@ -570,6 +678,7 @@
             }
 
             outArea.appendChild(newTagP);
+            trimOldMessages();
 
             var vScrollDown = $("#result").prop('scrollHeight');
             $("#result").scrollTop(vScrollDown);
@@ -615,6 +724,7 @@
 
             newTagP.appendChild(newTagSpan);
             outArea.appendChild(newTagP);
+            trimOldMessages();
 
             var vScrollDown = $('#result').prop('scrollHeight');
             $('#result').scrollTop(vScrollDown);
@@ -659,6 +769,7 @@
 
             newTagP.appendChild(newTagSpan);
             outArea.insertBefore(newTagP, outArea.firstChild);
+            trimNewMessages();
         }
 
         // 이전 메시지 로딩 (무한 스크롤)
@@ -776,7 +887,7 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ event: "TYPING_STOP" }));
                 }
-            }, 2000);
+            }, 3000);
         });
 
         // 타이핑 인디케이터 텍스트 업데이트
@@ -873,6 +984,24 @@
                 loadMembers(currentRoomID);
             }
         });
+
+        // DOM 가상화: 새 메시지 추가 후 위쪽(오래된) 노드 제거
+        function trimOldMessages() {
+            var outArea = document.getElementById('result');
+            var children = outArea.children;
+            while (children.length > MAX_DOM_MESSAGES) {
+                outArea.removeChild(children[0]);
+            }
+        }
+
+        // DOM 가상화: 이전 메시지 prepend 후 아래쪽(새) 노드 제거
+        function trimNewMessages() {
+            var outArea = document.getElementById('result');
+            var children = outArea.children;
+            while (children.length > MAX_DOM_MESSAGES) {
+                outArea.removeChild(children[children.length - 1]);
+            }
+        }
 
         // 유틸리티 함수
         function beep() {
@@ -1150,6 +1279,13 @@
                 }
             }, { passive: true });
         })();
+
+        // 페이지 언로드 시 WebSocket 정상 종료 (code 1000)
+        window.addEventListener('beforeunload', function () {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close(1000, 'page unload');
+            }
+        });
 
         // 초기 모바일 체크
         checkMobile();

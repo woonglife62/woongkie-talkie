@@ -21,7 +21,8 @@ const (
 	maxMessageSize = 64 * 1024
 
 	insertWorkers   = 4
-	insertQueueSize = 512
+	insertQueueSize = 1024
+	insertTimeout   = 5 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -77,8 +78,9 @@ func (c *Client) writePump() {
 		case msg, ok := <-c.Send:
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// Hub closed the channel.
-				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				// Hub closed the channel — send a clean close frame.
+				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "connection closed")
+				_ = c.Conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(writeWait))
 				return
 			}
 			if err := c.Conn.WriteJSON(msg); err != nil {
@@ -126,7 +128,11 @@ func (c *Client) readPump() {
 		var msg mongodb.ChatMessage
 		err := c.Conn.ReadJSON(&msg)
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err,
+				websocket.CloseGoingAway,
+				websocket.CloseNormalClosure,
+				websocket.CloseAbnormalClosure,
+			) {
 				logger.Logger.Warnw("readPump unexpected close error",
 					"username", c.Username,
 					"error", err,
@@ -185,11 +191,12 @@ func (c *Client) readPump() {
 			select {
 			case insertQueue <- chatMessage:
 				metrics.MessagesTotal.Inc()
-			default:
-				logger.Logger.Warnw("insertQueue full, dropping message",
+			case <-time.After(insertTimeout):
+				logger.Logger.Warnw("insertQueue full after timeout, dropping message",
 					"room_id", c.RoomID,
 					"username", c.Username,
 				)
+				metrics.MessagesDropped.Inc()
 			}
 		}
 

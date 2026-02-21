@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -92,6 +93,41 @@ func MeHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, user)
+}
+
+func RefreshHandler(c echo.Context) error {
+	auth := c.Request().Header.Get("Authorization")
+	tokenString := ""
+	if strings.HasPrefix(auth, "Bearer ") {
+		tokenString = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if tokenString == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "토큰이 필요합니다"})
+	}
+
+	// Parse and verify signature but skip claims validation (expiry etc.)
+	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return []byte(config.JWTConfig.Secret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithoutClaimsValidation())
+	if err != nil || !token.Valid {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
+	}
+
+	claims, ok := token.Claims.(*jwt.RegisteredClaims)
+	if !ok || claims.Subject == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
+	}
+
+	// If token has expiry, check that it is within the refresh grace period
+	if claims.ExpiresAt != nil && time.Since(claims.ExpiresAt.Time) > config.RefreshGracePeriod {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "토큰이 만료되었습니다. 다시 로그인하세요"})
+	}
+
+	newToken, err := generateToken(claims.Subject)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"token": newToken})
 }
 
 func generateToken(username string) (string, error) {

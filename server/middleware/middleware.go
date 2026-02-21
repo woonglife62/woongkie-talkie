@@ -18,6 +18,9 @@ func Middleware(e *echo.Echo) {
 	// global rate limiting
 	e.Use(RateLimit())
 
+	// CSRF protection: require X-Requested-With header on mutating requests
+	e.Use(CSRFProtect())
+
 	// auth
 	jwtAuth(e)
 

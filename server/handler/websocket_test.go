@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -231,6 +232,59 @@ func TestWebSocket_CloseEvent(t *testing.T) {
 	assert.Equal(t, "CLOSE", msg.Event)
 	assert.Contains(t, msg.Message, "frank", "leave message should mention username")
 	assert.Contains(t, msg.Message, "퇴장", "leave message should contain leave keyword")
+}
+
+// TestWebSocket_ConcurrentBroadcast verifies that concurrent broadcasts from
+// multiple goroutines are handled without data races.
+func TestWebSocket_ConcurrentBroadcast(t *testing.T) {
+	hub := NewHub("room-race-bcast", nil)
+	go hub.Run()
+	defer close(hub.stop)
+
+	const clientCount = 5
+	conns := make([]*websocket.Conn, clientCount)
+	teardowns := make([]func(), clientCount)
+	for i := 0; i < clientCount; i++ {
+		username := fmt.Sprintf("racer%d", i)
+		conn, teardown := connectTestClient(t, hub, username)
+		conns[i] = conn
+		teardowns[i] = teardown
+	}
+	defer func() {
+		for _, td := range teardowns {
+			td()
+		}
+	}()
+
+	// Allow all clients to register.
+	time.Sleep(50 * time.Millisecond)
+
+	const broadcasts = 10
+	var wg sync.WaitGroup
+	wg.Add(clientCount)
+	for i := 0; i < clientCount; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < broadcasts; j++ {
+				hub.Broadcast <- mongodb.ChatMessage{
+					User:    fmt.Sprintf("racer%d", idx),
+					Message: fmt.Sprintf("msg-%d-%d", idx, j),
+					RoomID:  "room-race-bcast",
+					Event:   "MSG",
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Drain remaining messages from one wire connection to ensure no panic.
+	conns[0].SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	for {
+		var msg mongodb.ChatMessage
+		if err := conns[0].ReadJSON(&msg); err != nil {
+			break
+		}
+	}
 }
 
 // TestHub_GetMemberNames verifies GetMemberNames returns unique usernames.

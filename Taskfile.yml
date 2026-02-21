@@ -29,6 +29,13 @@ tasks:
     cmds:
       - go test ./... -v
 
+  test:race:
+    desc: Run tests with race detector enabled (requires CGO_ENABLED=1)
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go test -race ./... -v -count=1
+
   test:handler:
     desc: Run handler tests only
     cmds:

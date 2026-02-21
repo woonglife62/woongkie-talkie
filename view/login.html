@@ -191,6 +191,7 @@
                 url: '/auth/login',
                 method: 'POST',
                 contentType: 'application/json',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 data: JSON.stringify({ username: username, password: password }),
                 success: function (res) {
                     localStorage.setItem('token', res.token);
@@ -223,6 +224,7 @@
                 url: '/auth/register',
                 method: 'POST',
                 contentType: 'application/json',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 data: JSON.stringify({
                     username: username,
                     password: password,
