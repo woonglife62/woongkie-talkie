@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: woongkie-talkie-config
+  namespace: woongkie-talkie
+  labels:
+    app.kubernetes.io/name: woongkie-talkie
+data:
+  IS_DEV: "production"
+  MONGODB_URI: "mongodb://$(MONGODB_USER):$(MONGODB_PASSWORD)@mongodb:27017"
+  MONGODB_DATABASE: "woongkie_talkie"
+  REDIS_ADDR: "redis:6379"
+  REDIS_DB: "0"

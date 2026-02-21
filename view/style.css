@@ -287,36 +287,208 @@ p {
     color: #fff;
 }
 
+/* 메시지 액션 버튼 */
+p {
+    position: relative;
+}
+
+.msg-actions {
+    display: none;
+    position: absolute;
+    top: -4px;
+    right: 0;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 2px 4px;
+    z-index: 5;
+    white-space: nowrap;
+}
+
+.p-me .msg-actions {
+    right: auto;
+    left: 0;
+}
+
+p:hover .msg-actions {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.msg-actions button {
+    font-size: 11px;
+    padding: 1px 5px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #555;
+    border-radius: 4px;
+}
+
+.msg-actions button:hover {
+    background: #f0f0f0;
+}
+
+/* 답장 미리보기 바 */
+#reply-preview {
+    display: none;
+    padding: 6px 16px;
+    background: #f0f7ff;
+    border-left: 3px solid #3CA7FB;
+    font-size: 13px;
+    color: #555;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#reply-preview.active {
+    display: flex;
+}
+
+#reply-preview-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+#reply-cancel {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: #999;
+    cursor: pointer;
+    margin-left: 8px;
+    padding: 0 4px;
+}
+
+/* 인용 메시지 */
+.reply-quote {
+    font-size: 12px;
+    color: #888;
+    border-left: 2px solid #3CA7FB;
+    padding-left: 6px;
+    margin-bottom: 4px;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 300px;
+}
+
+/* 수정됨 배지 */
+.edited-badge {
+    font-size: 10px;
+    color: #aaa;
+    margin-left: 4px;
+    font-style: italic;
+}
+
+/* 삭제된 메시지 */
+.deleted-message {
+    color: #bbb;
+    font-style: italic;
+}
+
+/* 프로필 푸터 */
+#sidebar-footer {
+    padding: 10px;
+    border-top: 1px solid #3a3d42;
+}
+
+#profile-info {
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+#profile-display-name-show {
+    font-weight: bold;
+    color: #fff;
+    font-size: 14px;
+    display: block;
+}
+
+#profile-bio-show {
+    color: #999;
+    font-size: 12px;
+    display: block;
+}
+
+/* 타이핑 인디케이터 */
+#typing-indicator {
+    height: 20px;
+    padding: 0 15px;
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+}
+
+/* 사이드바 백드롭 */
+#sidebar-backdrop {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+}
+
+#sidebar-backdrop.active {
+    display: block;
+}
+
 /* 반응형 */
 @media (max-width: 768px) {
+    #app {
+        flex-direction: column;
+    }
+
     #sidebar {
-        width: 200px;
-        min-width: 200px;
+        position: fixed;
+        top: 0;
+        left: -280px;
+        width: 280px;
+        min-width: 280px;
+        height: 100vh;
+        z-index: 100;
+        transition: transform 0.3s ease;
+    }
+
+    #sidebar.sidebar-open {
+        transform: translateX(280px);
+    }
+
+    #main-chat {
+        width: 100%;
+        height: 100vh;
+    }
+
+    #post-message {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+    }
+
+    #chat-body {
+        margin-bottom: 80px;
+    }
+
+    #result {
+        margin-bottom: 0;
     }
 
     #members-panel {
         display: none !important;
     }
-}
 
-@media (max-width: 576px) {
-    #sidebar {
-        width: 60px;
-        min-width: 60px;
-    }
-
-    .room-item-name {
-        font-size: 11px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .room-item-info {
-        display: none;
-    }
-
-    #sidebar-header h5 {
-        display: none;
+    #sidebar-toggle {
+        display: inline-block !important;
+        margin-right: 8px;
+        font-size: 20px;
+        line-height: 1;
     }
 }

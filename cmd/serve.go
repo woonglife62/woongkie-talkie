@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,6 +26,14 @@ var serveCmd = &cobra.Command{
 	Long: `
 1. Start Simple Chat Server.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// pprof profiling server (dev mode only)
+		if config.Config.IsDev == "dev" || config.Config.IsDev == "DEV" || config.Config.IsDev == "develop" {
+			go func() {
+				logger.Logger.Info("pprof available at http://localhost:6060/debug/pprof/")
+				http.ListenAndServe(":6060", nil)
+			}()
+		}
+
 		// Explicit MongoDB initialization
 		if err := db.Initialize(); err != nil {
 			logger.Logger.Warnw("MongoDB initialization failed", "error", err)

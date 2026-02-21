@@ -75,6 +75,25 @@ func readWithTimeout(t *testing.T, conn *websocket.Conn, d time.Duration) (mongo
 	return msg, true
 }
 
+// readNonPresence reads the first non-PRESENCE ChatMessage from conn within d duration.
+// PRESENCE events are automatically generated when clients register and are skipped.
+func readNonPresence(t *testing.T, conn *websocket.Conn, d time.Duration) (mongodb.ChatMessage, bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for {
+		conn.SetReadDeadline(deadline)
+		var msg mongodb.ChatMessage
+		err := conn.ReadJSON(&msg)
+		if err != nil {
+			return msg, false
+		}
+		if msg.Event == "PRESENCE" {
+			continue
+		}
+		return msg, true
+	}
+}
+
 // TestWebSocket_HubCommunication verifies that a message sent to hub.Broadcast
 // is received by a connected client.
 func TestWebSocket_HubCommunication(t *testing.T) {
@@ -94,7 +113,7 @@ func TestWebSocket_HubCommunication(t *testing.T) {
 	}
 	hub.Broadcast <- want
 
-	msg, ok := readWithTimeout(t, conn, time.Second)
+	msg, ok := readNonPresence(t, conn, time.Second)
 	assert.True(t, ok, "expected to receive a message within deadline")
 	assert.Equal(t, "alice", msg.User)
 	assert.Equal(t, "hello hub", msg.Message)
@@ -130,7 +149,7 @@ func TestWebSocket_MultipleClients(t *testing.T) {
 		wg.Add(1)
 		go func(idx int, conn *websocket.Conn) {
 			defer wg.Done()
-			msg, ok := readWithTimeout(t, conn, time.Second)
+			msg, ok := readNonPresence(t, conn, time.Second)
 			results[idx] = result{msg, ok}
 		}(i, c)
 	}
@@ -187,7 +206,7 @@ func TestWebSocket_OpenEvent(t *testing.T) {
 
 	hub.Broadcast <- mongodb.ChatMessage{Event: "OPEN", User: "eve"}
 
-	msg, ok := readWithTimeout(t, conn, time.Second)
+	msg, ok := readNonPresence(t, conn, time.Second)
 	assert.True(t, ok, "expected message")
 	assert.Equal(t, "OPEN", msg.Event)
 	assert.Contains(t, msg.Message, "eve", "join message should mention username")
@@ -207,7 +226,7 @@ func TestWebSocket_CloseEvent(t *testing.T) {
 
 	hub.Broadcast <- mongodb.ChatMessage{Event: "CLOSE", User: "frank"}
 
-	msg, ok := readWithTimeout(t, conn, time.Second)
+	msg, ok := readNonPresence(t, conn, time.Second)
 	assert.True(t, ok, "expected message")
 	assert.Equal(t, "CLOSE", msg.Event)
 	assert.Contains(t, msg.Message, "frank", "leave message should mention username")

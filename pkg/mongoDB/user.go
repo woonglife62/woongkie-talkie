@@ -16,6 +16,8 @@ type User struct {
 	Username     string             `json:"username" bson:"username"`
 	PasswordHash string             `json:"-" bson:"password_hash"`
 	DisplayName  string             `json:"display_name" bson:"display_name"`
+	AvatarURL     string             `json:"avatar_url" bson:"avatar_url"`
+	StatusMessage string             `json:"status_message" bson:"status_message"`
 	CreatedAt    time.Time          `json:"created_at" bson:"created_at"`
 }
 
@@ -79,4 +81,25 @@ func FindUserByUsername(username string) (*User, error) {
 func CheckPassword(user *User, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	return err == nil
+}
+
+// UpdateUserProfile updates display_name, status_message, and avatar_url for the given username.
+func UpdateUserProfile(username, displayName, statusMessage, avatarURL string) (*User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "display_name", Value: displayName},
+		{Key: "status_message", Value: statusMessage},
+		{Key: "avatar_url", Value: avatarURL},
+	}}}
+	filter := bson.D{{Key: "username", Value: username}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	var user User
+	err := userCollection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }

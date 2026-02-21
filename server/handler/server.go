@@ -113,6 +113,12 @@ func (c *Client) readPump() {
 		msg.RoomID = c.RoomID
 
 		if msg.Event != "OPEN" {
+			// Typing events: update Redis presence and broadcast without saving to MongoDB
+			if msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP" {
+				c.Hub.Broadcast <- msg
+				continue
+			}
+
 			// Rate limit: 30 msg/min per client
 			if !c.msgLimit.Allow() {
 				warn := mongodb.ChatMessage{
@@ -221,6 +227,16 @@ func (h *Hub) Run() {
 				"room_id", client.RoomID,
 				"username", client.Username,
 			)
+			// Update Redis presence and broadcast PRESENCE online event
+			if redisclient.IsAvailable() {
+				_ = redisclient.SetOnline(context.Background(), client.RoomID, client.Username)
+			}
+			h.broadcastLocal(mongodb.ChatMessage{
+				Event:  "PRESENCE",
+				User:   client.Username,
+				RoomID: client.RoomID,
+				Message: "online",
+			})
 
 		case client := <-h.Unregister:
 			h.mu.Lock()
@@ -233,6 +249,17 @@ func (h *Hub) Run() {
 				)
 			}
 			h.mu.Unlock()
+			// Update Redis presence and broadcast PRESENCE offline event
+			if redisclient.IsAvailable() {
+				_ = redisclient.SetOffline(context.Background(), client.RoomID, client.Username)
+				_ = redisclient.ClearTyping(context.Background(), client.RoomID, client.Username)
+			}
+			h.broadcastLocal(mongodb.ChatMessage{
+				Event:  "PRESENCE",
+				User:   client.Username,
+				RoomID: client.RoomID,
+				Message: "offline",
+			})
 
 		case msg := <-h.Broadcast:
 			// Message from a local client: publish to Redis or fall back to local broadcast.
@@ -268,9 +295,26 @@ func (h *Hub) Run() {
 
 // broadcastLocal fans out msg to all locally connected clients.
 func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
+	isTyping := msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP"
+
+	// Update Redis typing state (best-effort, errors are non-fatal)
+	if redisclient.IsAvailable() {
+		ctx := context.Background()
+		if msg.Event == "TYPING_START" {
+			_ = redisclient.SetTyping(ctx, h.RoomID, msg.User)
+		} else if msg.Event == "TYPING_STOP" {
+			_ = redisclient.ClearTyping(ctx, h.RoomID, msg.User)
+		}
+	}
+
 	msgFulltxt := msg.Message
 	h.mu.Lock()
 	for client := range h.Clients {
+		// Do not send typing events back to the sender
+		if isTyping && client.Username == msg.User {
+			continue
+		}
+
 		clientMsg := msg
 		clientMsg.Message = msgFulltxt
 		if client.Username == msg.User {

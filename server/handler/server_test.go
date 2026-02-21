@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -232,40 +231,14 @@ func TestHub_BroadcastOwnerFlag(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	// Drain both connections. Order of delivery is non-deterministic, so collect both.
-	results := map[string]mongodb.ChatMessage{}
-	for _, wire := range []*websocket.Conn{wireSender, wireObserver} {
-		wire.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		var m mongodb.ChatMessage
-		if err := wire.ReadJSON(&m); err != nil {
-			t.Fatalf("failed reading from wire: %v", err)
-		}
-		results[m.User+"_"+fmt.Sprintf("%v", m.Owner)] = m
+	// Read the broadcast message from each wire, skipping PRESENCE events.
+	fromSenderWire, ok := readNonPresence(t, wireSender, time.Second)
+	if !ok {
+		t.Fatal("sender wire: expected to receive broadcast")
 	}
-
-	// The message sent to the sender's wire should have Owner=true.
-	// The message sent to the observer's wire should have Owner=false.
-	// We check by reading the Owner field on the two connections.
-	wireSender.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	wireObserver.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-	// Re-broadcast once more so we can read from each wire individually.
-	hub.Broadcast <- mongodb.ChatMessage{
-		User:    "sender",
-		Message: "check owner",
-		RoomID:  "room-owner",
-		Event:   "MSG",
-	}
-	time.Sleep(100 * time.Millisecond)
-
-	var fromSenderWire, fromObserverWire mongodb.ChatMessage
-	wireSender.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	if err := wireSender.ReadJSON(&fromSenderWire); err != nil {
-		t.Fatalf("sender wire read error: %v", err)
-	}
-	wireObserver.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	if err := wireObserver.ReadJSON(&fromObserverWire); err != nil {
-		t.Fatalf("observer wire read error: %v", err)
+	fromObserverWire, ok := readNonPresence(t, wireObserver, time.Second)
+	if !ok {
+		t.Fatal("observer wire: expected to receive broadcast")
 	}
 
 	if !fromSenderWire.Owner {
@@ -298,10 +271,9 @@ func TestHub_BroadcastOpenEvent(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	wire.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var recv mongodb.ChatMessage
-	if err := wire.ReadJSON(&recv); err != nil {
-		t.Fatalf("failed to read OPEN message: %v", err)
+	recv, ok := readNonPresence(t, wire, time.Second)
+	if !ok {
+		t.Fatal("failed to read OPEN message")
 	}
 
 	want := "---- alice님이 입장하셨습니다. ----"
@@ -332,10 +304,9 @@ func TestHub_BroadcastCloseEvent(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	wire.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var recv mongodb.ChatMessage
-	if err := wire.ReadJSON(&recv); err != nil {
-		t.Fatalf("failed to read CLOSE message: %v", err)
+	recv, ok := readNonPresence(t, wire, time.Second)
+	if !ok {
+		t.Fatal("failed to read CLOSE message")
 	}
 
 	want := "---- bob님이 퇴장하셨습니다. ----"

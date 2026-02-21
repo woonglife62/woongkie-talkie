@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
     <title>Woongkie-Talkie</title>
 
@@ -47,16 +47,22 @@
                     data-bs-target="#createRoomModal">+</button>
             </div>
             <div id="room-list"></div>
-            <div id="sidebar-footer" style="padding: 10px; border-top: 1px solid #eee;">
-                <small id="current-user-display" style="color: #666;"></small>
-                <button class="btn btn-sm btn-outline-secondary float-end" id="logout-btn">로그아웃</button>
+            <div id="sidebar-footer">
+                <div id="profile-info" data-bs-toggle="modal" data-bs-target="#profileModal" title="프로필 편집">
+                    <span id="profile-display-name-show"></span>
+                    <span id="profile-bio-show"></span>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary mt-2 w-100" id="logout-btn">로그아웃</button>
             </div>
         </div>
+
+        <div id="sidebar-backdrop"></div>
 
         <!-- 메인 채팅 영역 -->
         <div id="main-chat">
             <div id="chat-header">
                 <div id="room-info">
+                    <button class="btn btn-sm" id="sidebar-toggle" style="display:none;">&#9776;</button>
                     <span id="room-name">general</span>
                     <span id="room-desc">기본 채팅방</span>
                 </div>
@@ -75,6 +81,13 @@
                     <h6>참여자 목록</h6>
                     <div id="members-list"></div>
                 </div>
+            </div>
+
+            <div id="typing-indicator"></div>
+
+            <div id="reply-preview">
+                <span id="reply-preview-text"></span>
+                <button id="reply-cancel">&#10005;</button>
             </div>
 
             <div id="post-message">
@@ -145,6 +158,51 @@
         </div>
     </div>
 
+    <!-- 프로필 편집 모달 -->
+    <div class="modal fade" id="profileModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로필 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">표시 이름</label>
+                        <input type="text" class="form-control" id="profile-display-name" maxlength="50" placeholder="표시 이름">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">소개</label>
+                        <input type="text" class="form-control" id="profile-bio" maxlength="200" placeholder="한 줄 소개">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-blue" id="confirm-profile-save">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 메시지 편집 모달 -->
+    <div class="modal fade" id="editMessageModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">메시지 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control" id="edit-message-input" maxlength="2000">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-blue" id="confirm-edit-message">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // JWT 토큰 확인 - 없으면 로그인 페이지로
         var token = localStorage.getItem('token');
@@ -165,6 +223,11 @@
         var hasMore = true;
         var oldestTimestamp = null;
         var lastMessageTimestamp = null;
+
+        // 타이핑 인디케이터 상태
+        var isTyping = false;
+        var typingTimer = null;
+        var typingUsers = {};
 
         // 모든 AJAX 요청에 JWT 토큰 헤더 추가
         $.ajaxSetup({
@@ -384,6 +447,37 @@
             ws.onmessage = function (event) {
                 var recData = JSON.parse(event.data);
                 lastMessageTimestamp = new Date().toISOString();
+
+                if (recData.Event === 'TYPING_START') {
+                    // 3초 후 자동 제거 타이머 (서버가 TYPING_STOP을 보내지 않을 경우 대비)
+                    if (typingUsers[recData.User]) {
+                        clearTimeout(typingUsers[recData.User]);
+                    }
+                    typingUsers[recData.User] = setTimeout(function () {
+                        delete typingUsers[recData.User];
+                        updateTypingIndicator();
+                    }, 3000);
+                    updateTypingIndicator();
+                    return;
+                }
+
+                if (recData.Event === 'TYPING_STOP') {
+                    if (typingUsers[recData.User]) {
+                        clearTimeout(typingUsers[recData.User]);
+                        delete typingUsers[recData.User];
+                    }
+                    updateTypingIndicator();
+                    return;
+                }
+
+                if (recData.Event === 'PRESENCE') {
+                    // 접속/퇴장 시 참여자 목록 갱신
+                    if (currentRoomID) {
+                        loadMembers(currentRoomID);
+                    }
+                    return;
+                }
+
                 appendMessage(recData);
             };
 
@@ -415,11 +509,13 @@
             var outArea = document.getElementById('result');
             var newTagP = document.createElement('p');
             var newTagSpan = document.createElement('span');
+            var isAlert = recData.Event === "OPEN" || recData.Event === "CLOSE";
+            var isOwner = recData.owner === true;
 
-            if (recData.Event === "OPEN" || recData.Event === "CLOSE") {
+            if (isAlert) {
                 newTagP.setAttribute('class', 'p-alert');
                 newTagSpan.setAttribute('class', 'span-alert');
-            } else if (recData.owner === true) {
+            } else if (isOwner) {
                 newTagP.setAttribute('class', 'p-me preserve-whitespace');
                 newTagSpan.setAttribute('class', 'span-me');
             } else {
@@ -437,17 +533,42 @@
                 newTagP.appendChild(newTagSpanSpace);
             }
 
-            if (validURL(recData.message)) {
-                if (!validProtocol(recData.message)) {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
-                } else {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
-                }
-            } else {
-                newTagSpan.textContent = recData.message;
+            // 답장 인용 표시
+            if (!isAlert && recData.reply_to) {
+                var quoteSpan = document.createElement('span');
+                quoteSpan.setAttribute('class', 'reply-quote');
+                quoteSpan.textContent = '↩ 답장';
+                newTagSpan.appendChild(quoteSpan);
             }
 
+            // 메시지 텍스트 span (msg-text 클래스로 편집/삭제 시 참조)
+            var msgTextSpan = document.createElement('span');
+            msgTextSpan.setAttribute('class', 'msg-text');
+            if (!isAlert && recData.message && validURL(recData.message)) {
+                if (!validProtocol(recData.message)) {
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                } else {
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(recData.message) + '" target="_blank">' + escapeHtml(recData.message) + '</a>';
+                }
+            } else {
+                msgTextSpan.textContent = recData.message;
+            }
+            newTagSpan.appendChild(msgTextSpan);
             newTagP.appendChild(newTagSpan);
+
+            // data-msg-id 및 액션 버튼 추가 (일반 메시지만)
+            if (!isAlert && recData.message_id) {
+                newTagP.setAttribute('data-msg-id', recData.message_id);
+                var actionsDiv = document.createElement('div');
+                actionsDiv.setAttribute('class', 'msg-actions');
+                actionsDiv.innerHTML = '<button class="msg-reply-btn">답장</button>';
+                if (isOwner) {
+                    actionsDiv.innerHTML += '<button class="msg-edit-btn">수정</button>' +
+                                           '<button class="msg-delete-btn">삭제</button>';
+                }
+                newTagP.appendChild(actionsDiv);
+            }
+
             outArea.appendChild(newTagP);
 
             var vScrollDown = $("#result").prop('scrollHeight');
@@ -631,8 +752,45 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(sendData));
             }
+            // 전송 후 타이핑 상태 초기화
+            if (isTyping) {
+                isTyping = false;
+                clearTimeout(typingTimer);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: "TYPING_STOP" }));
+                }
+            }
             $("#chat-message").val("");
         });
+
+        // 타이핑 인디케이터 전송
+        $("#chat-message").on("input", function () {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!isTyping) {
+                isTyping = true;
+                ws.send(JSON.stringify({ event: "TYPING_START" }));
+            }
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(function () {
+                isTyping = false;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: "TYPING_STOP" }));
+                }
+            }, 2000);
+        });
+
+        // 타이핑 인디케이터 텍스트 업데이트
+        function updateTypingIndicator() {
+            var users = Object.keys(typingUsers);
+            var $indicator = $('#typing-indicator');
+            if (users.length === 0) {
+                $indicator.text('');
+            } else if (users.length === 1) {
+                $indicator.text(escapeHtml(users[0]) + '님이 입력 중...');
+            } else {
+                $indicator.text(escapeHtml(users.join(', ')) + '님이 입력 중...');
+            }
+        }
 
         // 채팅방 생성
         $('#new-room-public').on('change', function () {
@@ -743,6 +901,258 @@
             div.appendChild(document.createTextNode(text));
             return div.innerHTML;
         }
+
+        // ── 프로필 ──────────────────────────────────────────────────────
+        function loadProfile() {
+            $.ajax({
+                url: '/auth/me',
+                method: 'GET',
+                success: function (user) {
+                    var name = user.display_name || user.username || currentUser;
+                    var bio  = user.bio || '';
+                    $('#profile-display-name-show').text(name);
+                    $('#profile-bio-show').text(bio);
+                    $('#profile-display-name').val(name);
+                    $('#profile-bio').val(bio);
+                }
+            });
+        }
+
+        $('#confirm-profile-save').on('click', function () {
+            var displayName = $('#profile-display-name').val().trim();
+            var bio         = $('#profile-bio').val().trim();
+            $.ajax({
+                url: '/users/me/profile',
+                method: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify({ display_name: displayName, bio: bio }),
+                success: function (user) {
+                    var name = user.display_name || user.username || currentUser;
+                    $('#profile-display-name-show').text(name);
+                    $('#profile-bio-show').text(user.bio || '');
+                    bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
+                },
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '프로필 저장에 실패했습니다.');
+                }
+            });
+        });
+
+        // ── 답장 ──────────────────────────────────────────────────────
+        var replyToMsgID = null;
+
+        function setReplyTo(msgId, msgText) {
+            replyToMsgID = msgId;
+            $('#reply-preview-text').text('답장: ' + msgText);
+            $('#reply-preview').addClass('active');
+            $('#chat-message').focus();
+        }
+
+        function clearReplyTo() {
+            replyToMsgID = null;
+            $('#reply-preview').removeClass('active');
+            $('#reply-preview-text').text('');
+        }
+
+        $('#reply-cancel').on('click', function () {
+            clearReplyTo();
+        });
+
+        // ── 메시지 전송 시 reply_to 포함 ────────────────────────────────
+        // Override submit to handle reply via REST when replyToMsgID is set
+        $('#submit-btn').off('click').on('click', function () {
+            var msg = $('#chat-message').val();
+            if (!msg || msg.trim() === '') return false;
+
+            if (replyToMsgID) {
+                // Send reply via REST
+                $.ajax({
+                    url: '/rooms/' + currentRoomID + '/messages/' + replyToMsgID + '/reply',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ message: msg }),
+                    success: function () {
+                        clearReplyTo();
+                    },
+                    error: function (xhr) {
+                        var resp = xhr.responseJSON;
+                        alert(resp ? resp.error : '답장 전송에 실패했습니다.');
+                    }
+                });
+            } else {
+                // Normal message via WebSocket
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: 'MESSAGE', user: '', message: msg }));
+                }
+            }
+
+            // Stop typing indicator
+            if (isTyping) {
+                isTyping = false;
+                clearTimeout(typingTimer);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: 'TYPING_STOP' }));
+                }
+            }
+            $('#chat-message').val('');
+        });
+
+        // Enter key for the overridden submit
+        $('#chat-message').off('keyup').on('keyup', function (e) {
+            if (e.keyCode === 13) {
+                $('#submit-btn').click();
+            }
+        });
+
+        // ── 메시지 편집 ────────────────────────────────────────────────
+        var editingMsgID = null;
+
+        $(document).on('click', '.msg-edit-btn', function () {
+            var $p = $(this).closest('p');
+            editingMsgID = $p.data('msg-id');
+            var currentText = $p.find('.msg-text').text();
+            $('#edit-message-input').val(currentText);
+            var modal = new bootstrap.Modal(document.getElementById('editMessageModal'));
+            modal.show();
+        });
+
+        $('#confirm-edit-message').on('click', function () {
+            if (!editingMsgID) return;
+            var newMsg = $('#edit-message-input').val().trim();
+            if (!newMsg) return;
+            $.ajax({
+                url: '/rooms/' + currentRoomID + '/messages/' + editingMsgID,
+                method: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify({ message: newMsg }),
+                success: function () {
+                    bootstrap.Modal.getInstance(document.getElementById('editMessageModal')).hide();
+                    editingMsgID = null;
+                },
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '수정에 실패했습니다.');
+                }
+            });
+        });
+
+        // ── 메시지 삭제 ────────────────────────────────────────────────
+        $(document).on('click', '.msg-delete-btn', function () {
+            if (!confirm('메시지를 삭제하시겠습니까?')) return;
+            var $p = $(this).closest('p');
+            var msgId = $p.data('msg-id');
+            $.ajax({
+                url: '/rooms/' + currentRoomID + '/messages/' + msgId,
+                method: 'DELETE',
+                success: function () {},
+                error: function (xhr) {
+                    var resp = xhr.responseJSON;
+                    alert(resp ? resp.error : '삭제에 실패했습니다.');
+                }
+            });
+        });
+
+        // ── 답장 버튼 ──────────────────────────────────────────────────
+        $(document).on('click', '.msg-reply-btn', function () {
+            var $p = $(this).closest('p');
+            var msgId = $p.data('msg-id');
+            var msgText = $p.find('.msg-text').text().substring(0, 50);
+            setReplyTo(msgId, msgText);
+        });
+
+        // ── WS MSG_EDIT / MSG_DELETE 처리 ──────────────────────────────
+        // Patch appendMessage to also handle MSG_EDIT and MSG_DELETE
+        var _origAppendMessage = appendMessage;
+        appendMessage = function (recData) {
+            if (recData.Event === 'MSG_EDIT') {
+                var $p = $('p[data-msg-id="' + recData.message_id + '"]');
+                if ($p.length) {
+                    $p.find('.msg-text').text(recData.message);
+                }
+                return;
+            }
+            if (recData.Event === 'MSG_DELETE') {
+                var $p = $('p[data-msg-id="' + recData.message_id + '"]');
+                if ($p.length) {
+                    $p.find('.msg-text').text('(삭제된 메시지)').css('color', '#aaa');
+                    $p.find('.msg-actions').remove();
+                }
+                return;
+            }
+            _origAppendMessage(recData);
+        };
+
+        // 프로필 초기 로드
+        loadProfile();
+
+        // 모바일 사이드바 토글
+        function checkMobile() {
+            if (window.innerWidth < 768) {
+                $('#sidebar-toggle').show();
+            } else {
+                $('#sidebar-toggle').hide();
+                $('#sidebar').removeClass('sidebar-open');
+                $('#sidebar-backdrop').removeClass('active');
+            }
+        }
+
+        function closeSidebar() {
+            $('#sidebar').removeClass('sidebar-open');
+            $('#sidebar-backdrop').removeClass('active');
+        }
+
+        $('#sidebar-toggle').on('click', function () {
+            $('#sidebar').toggleClass('sidebar-open');
+            $('#sidebar-backdrop').toggleClass('active');
+        });
+
+        $('#sidebar-backdrop').on('click', function () {
+            closeSidebar();
+        });
+
+        // 방 선택 시 사이드바 닫기 (모바일)
+        $(document).on('click', '.room-item', function () {
+            if (window.innerWidth < 768) {
+                closeSidebar();
+            }
+        });
+
+        $(window).on('resize', function () {
+            checkMobile();
+        });
+
+        // 터치 스와이프로 사이드바 열기/닫기
+        (function () {
+            var touchStartX = 0;
+            var touchStartY = 0;
+
+            document.addEventListener('touchstart', function (e) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+
+            document.addEventListener('touchend', function (e) {
+                if (window.innerWidth >= 768) return;
+                var dx = e.changedTouches[0].clientX - touchStartX;
+                var dy = e.changedTouches[0].clientY - touchStartY;
+
+                // 수평 스와이프가 수직보다 클 때만 처리
+                if (Math.abs(dx) < Math.abs(dy)) return;
+
+                if (dx > 60 && touchStartX < 40) {
+                    // 왼쪽 가장자리에서 오른쪽으로 스와이프: 사이드바 열기
+                    $('#sidebar').addClass('sidebar-open');
+                    $('#sidebar-backdrop').addClass('active');
+                } else if (dx < -60 && $('#sidebar').hasClass('sidebar-open')) {
+                    // 왼쪽으로 스와이프: 사이드바 닫기
+                    closeSidebar();
+                }
+            }, { passive: true });
+        })();
+
+        // 초기 모바일 체크
+        checkMobile();
     </script>
 </body>
 

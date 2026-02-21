@@ -2,31 +2,39 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // ChatMessage is used for WebSocket message exchange (keep json tags as-is for compatibility)
 type ChatMessage struct {
-	Event   string `json:"Event,omitempty"`
-	User    string `json:"User"`
-	Message string `json:"message"`
-	Owner   bool   `json:"owner,omitempty"`
-	RoomID  string `json:"room_id,omitempty"`
+	Event     string `json:"Event,omitempty"`
+	User      string `json:"User"`
+	Message   string `json:"message"`
+	Owner     bool   `json:"owner,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	ReplyTo   string `json:"reply_to,omitempty"`
 }
 
 // Chat is the MongoDB storage structure (flat, snake_case)
 type Chat struct {
-	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
-	RoomID    string    `json:"room_id" bson:"room_id,omitempty"`
-	Event     string    `json:"event,omitempty" bson:"event,omitempty"`
-	User      string    `json:"user" bson:"user"`
-	Message   string    `json:"message" bson:"message"`
-	Owner     bool      `json:"owner,omitempty" bson:"owner,omitempty"`
+	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	CreatedAt time.Time          `json:"created_at" bson:"created_at,omitempty"`
+	EditedAt  *time.Time         `json:"edited_at,omitempty" bson:"edited_at,omitempty"`
+	RoomID    string             `json:"room_id" bson:"room_id,omitempty"`
+	Event     string             `json:"event,omitempty" bson:"event,omitempty"`
+	User      string             `json:"user" bson:"user"`
+	Message   string             `json:"message" bson:"message"`
+	Owner     bool               `json:"owner,omitempty" bson:"owner,omitempty"`
+	ReplyTo   string             `json:"reply_to,omitempty" bson:"reply_to,omitempty"`
+	IsDeleted bool               `json:"is_deleted,omitempty" bson:"is_deleted,omitempty"`
 }
 
 var chatCollection *mongo.Collection
@@ -254,6 +262,116 @@ func FindChat() (chat []Chat, err error) {
 	}
 
 	return chat, nil
+}
+
+// FindChatByID finds a single chat message by its ObjectID hex string.
+func FindChatByID(messageID string) (*Chat, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	var chat Chat
+	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
+	if err != nil {
+		return nil, err
+	}
+	return &chat, nil
+}
+
+// EditChat updates the message text for the given message ID, only if the requesting
+// user is the owner and the message is within the 5-minute edit window.
+func EditChat(messageID, username, newMessage string) (*Chat, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	var chat Chat
+	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
+	if err != nil {
+		return nil, err
+	}
+
+	if chat.User != username {
+		return nil, errors.New("forbidden")
+	}
+	if time.Since(chat.CreatedAt) > 5*time.Minute {
+		return nil, errors.New("edit window expired")
+	}
+	if chat.IsDeleted {
+		return nil, errors.New("message deleted")
+	}
+
+	now := time.Now()
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "message", Value: newMessage},
+		{Key: "edited_at", Value: now},
+	}}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	var updated Chat
+	err = chatCollection.FindOneAndUpdate(ctx, bson.D{{Key: "_id", Value: oid}}, update, opts).Decode(&updated)
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
+}
+
+// DeleteChat soft-deletes a message by setting is_deleted=true and clearing message content.
+func DeleteChat(messageID, username string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(messageID)
+	if err != nil {
+		return err
+	}
+
+	var chat Chat
+	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
+	if err != nil {
+		return err
+	}
+
+	if chat.User != username {
+		return errors.New("forbidden")
+	}
+
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "is_deleted", Value: true},
+		{Key: "message", Value: ""},
+	}}}
+	_, err = chatCollection.UpdateOne(ctx, bson.D{{Key: "_id", Value: oid}}, update)
+	return err
+}
+
+// InsertChatWithReply saves a new chat message that replies to another message.
+func InsertChatWithReply(chatMessage ChatMessage) (*Chat, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	chat := Chat{
+		CreatedAt: time.Now(),
+		RoomID:    chatMessage.RoomID,
+		Event:     chatMessage.Event,
+		User:      chatMessage.User,
+		Message:   chatMessage.Message,
+		Owner:     chatMessage.Owner,
+		ReplyTo:   chatMessage.ReplyTo,
+	}
+
+	result, err := chatCollection.InsertOne(ctx, chat)
+	if err != nil {
+		return nil, err
+	}
+	chat.ID = result.InsertedID.(primitive.ObjectID)
+	return &chat, nil
 }
 
 // 기존 메시지를 특정 room으로 마이그레이션

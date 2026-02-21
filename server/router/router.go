@@ -56,4 +56,11 @@ func Router(e *echo.Echo) {
 	e.POST("/rooms/:id/leave", handler.LeaveRoomHandler)
 	e.GET("/rooms/:id/ws", handler.RoomWebSocket)
 	e.GET("/rooms/:id/messages", handler.GetRoomMessagesHandler)
+	e.PUT("/rooms/:id/messages/:msgId", handler.EditMessageHandler)
+	e.DELETE("/rooms/:id/messages/:msgId", handler.DeleteMessageHandler)
+	e.POST("/rooms/:id/messages/:msgId/reply", handler.ReplyMessageHandler)
+
+	// 유저 프로필 API
+	e.GET("/users/:username/profile", handler.GetProfileHandler)
+	e.PUT("/users/me/profile", handler.UpdateProfileHandler)
 }
