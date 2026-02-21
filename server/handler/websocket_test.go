@@ -30,8 +30,15 @@ func connectTestClient(t *testing.T, hub *Hub, username string) (*websocket.Conn
 			t.Logf("upgrade error: %v", err)
 			return
 		}
-		client := &Client{Conn: conn, Username: username, RoomID: hub.RoomID}
+		client := &Client{
+			Hub:      hub,
+			Conn:     conn,
+			Send:     make(chan mongodb.ChatMessage, 256),
+			Username: username,
+			RoomID:   hub.RoomID,
+		}
 		hub.Register <- client
+		go client.writePump()
 		// Drain incoming messages (client side drives the test).
 		for {
 			_, _, err := conn.ReadMessage()
@@ -214,9 +221,9 @@ func TestHub_GetMemberNames(t *testing.T) {
 	defer close(hub.stop)
 
 	// Manually register two clients with the same username (two tabs).
-	c1 := &Client{Username: "alice", RoomID: hub.RoomID}
-	c2 := &Client{Username: "alice", RoomID: hub.RoomID}
-	c3 := &Client{Username: "bob", RoomID: hub.RoomID}
+	c1 := &Client{Username: "alice", RoomID: hub.RoomID, Send: make(chan mongodb.ChatMessage, 1)}
+	c2 := &Client{Username: "alice", RoomID: hub.RoomID, Send: make(chan mongodb.ChatMessage, 1)}
+	c3 := &Client{Username: "bob", RoomID: hub.RoomID, Send: make(chan mongodb.ChatMessage, 1)}
 
 	hub.mu.Lock()
 	hub.Clients[c1] = true

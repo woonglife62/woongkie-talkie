@@ -33,8 +33,14 @@ func CreateRoomHandler(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
 	}
-	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 이름은 필수입니다"})
+	if req.Name == "" || len(req.Name) > 50 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 이름은 1자 이상 50자 이하이어야 합니다"})
+	}
+	if len(req.Description) > 200 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 설명은 200자 이하이어야 합니다"})
+	}
+	if req.MaxMembers < 0 || req.MaxMembers > 1000 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "최대 인원은 0 이상 1000 이하이어야 합니다"})
 	}
 
 	username := GetUsername(c)
@@ -57,7 +63,7 @@ func CreateRoomHandler(c echo.Context) error {
 
 	created, err := mongodb.CreateRoom(room)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 생성에 실패했습니다: " + err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 생성에 실패했습니다"})
 	}
 
 	return c.JSON(http.StatusCreated, created)
@@ -105,7 +111,7 @@ func DeleteRoomHandler(c echo.Context) error {
 
 	err := mongodb.DeleteRoom(id, username)
 	if err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "채팅방 삭제 권한이 없습니다"})
 	}
 
 	RoomMgr.RemoveHub(id)
@@ -134,7 +140,7 @@ func JoinRoomHandler(c echo.Context) error {
 
 	err = mongodb.JoinRoom(id, username)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 참여에 실패했습니다"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에 참여했습니다"})
@@ -147,7 +153,7 @@ func LeaveRoomHandler(c echo.Context) error {
 
 	err := mongodb.LeaveRoom(id, username)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 퇴장에 실패했습니다"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에서 나갔습니다"})

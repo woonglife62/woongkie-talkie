@@ -61,6 +61,7 @@
                     <span id="room-desc">기본 채팅방</span>
                 </div>
                 <div id="chat-header-right">
+                    <span id="conn-status" style="font-size:12px; margin-right:8px; color:#28a745;">&#9679; 연결됨</span>
                     <span id="member-count">0</span>
                     <button class="btn btn-sm btn-outline-secondary" id="toggle-members">참여자</button>
                 </div>
@@ -156,6 +157,9 @@
         var currentRoomID = null;
         var currentRoomName = '';
         var pendingJoinRoomID = null;
+        var reconnectDelay = 1000;
+        var reconnectTimer = null;
+        var isReconnecting = false;
 
         // 모든 AJAX 요청에 JWT 토큰 헤더 추가
         $.ajaxSetup({
@@ -262,6 +266,12 @@
 
         // 채팅방 전환
         function switchRoom(roomId, name, desc) {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            reconnectDelay = 1000;
+            isReconnecting = false;
             if (ws) {
                 ws.close();
                 ws = null;
@@ -281,8 +291,25 @@
             loadMembers(roomId);
         }
 
-        // WebSocket 연결 (query param으로 토큰 전달)
+        // 연결 상태 UI 업데이트
+        function setConnStatus(state) {
+            var $s = $('#conn-status');
+            if (state === 'connected') {
+                $s.css('color', '#28a745').html('&#9679; 연결됨');
+            } else if (state === 'reconnecting') {
+                $s.css('color', '#ffc107').html('&#9679; 재연결 중...');
+            } else {
+                $s.css('color', '#dc3545').html('&#9679; 끊김');
+            }
+        }
+
+        // WebSocket 연결 (query param으로 토큰 전달, 지수 백오프 재연결)
         function connectWebSocket(roomId) {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+
             var loc = window.location;
             var uri = (loc.protocol === 'https:') ? 'wss:' : 'ws:';
             uri += '//' + loc.host;
@@ -292,6 +319,9 @@
             ws = new WebSocket(uri);
 
             ws.onopen = function () {
+                reconnectDelay = 1000;
+                isReconnecting = false;
+                setConnStatus('connected');
                 var sendData = { event: "OPEN" };
                 ws.send(JSON.stringify(sendData));
             };
@@ -302,7 +332,24 @@
             };
 
             ws.onclose = function () {
-                console.log('WebSocket closed for room: ' + roomId);
+                // 방이 전환된 경우(currentRoomID 변경) 재연결하지 않음
+                if (currentRoomID !== roomId) {
+                    return;
+                }
+                setConnStatus('disconnected');
+                console.log('WebSocket closed for room: ' + roomId + '. Reconnecting in ' + reconnectDelay + 'ms');
+                setConnStatus('reconnecting');
+                isReconnecting = true;
+                reconnectTimer = setTimeout(function () {
+                    if (currentRoomID === roomId) {
+                        connectWebSocket(roomId);
+                    }
+                }, reconnectDelay);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            };
+
+            ws.onerror = function (err) {
+                console.log('WebSocket error for room: ' + roomId, err);
             };
         }
 

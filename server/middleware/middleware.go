@@ -12,6 +12,9 @@ func Middleware(e *echo.Echo) {
 	// security headers
 	securityHeaders(e)
 
+	// global rate limiting
+	e.Use(RateLimit())
+
 	// auth
 	jwtAuth(e)
 

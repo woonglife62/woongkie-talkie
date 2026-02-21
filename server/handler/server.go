@@ -3,27 +3,111 @@ package handler
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 )
 
-var upgrader = websocket.Upgrader{}
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10 // 54s
+	maxMessageSize = 64 * 1024
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
 
 // Client represents a connected WebSocket client
 type Client struct {
+	Hub      *Hub
 	Conn     *websocket.Conn
+	Send     chan mongodb.ChatMessage // per-client send buffer
 	Username string
 	RoomID   string
-	mu       sync.Mutex
 }
 
-func (c *Client) WriteJSON(v interface{}) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Conn.WriteJSON(v)
+// writePump pumps messages from the Send channel to the WebSocket connection.
+func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+	for {
+		select {
+		case msg, ok := <-c.Send:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Hub closed the channel.
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteJSON(msg); err != nil {
+				log.Printf("writePump WriteJSON error for %s: %v", c.Username, err)
+				return
+			}
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// readPump pumps messages from the WebSocket to the hub's Broadcast channel.
+func (c *Client) readPump() {
+	defer func() {
+		// Send CLOSE event to notify other clients.
+		msg := mongodb.ChatMessage{
+			Event:  "CLOSE",
+			User:   c.Username,
+			RoomID: c.RoomID,
+		}
+		c.Hub.Broadcast <- msg
+		c.Hub.Unregister <- c
+	}()
+
+	c.Conn.SetReadLimit(maxMessageSize)
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		var msg mongodb.ChatMessage
+		err := c.Conn.ReadJSON(&msg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("readPump error for %s: %v", c.Username, err)
+			}
+			return
+		}
+		msg.User = c.Username
+		msg.RoomID = c.RoomID
+
+		if msg.Event != "OPEN" {
+			chatMessage := mongodb.ChatMessage{
+				User:    msg.User,
+				Message: msg.Message,
+				RoomID:  c.RoomID,
+			}
+			if err := mongodb.InsertChat(chatMessage); err != nil {
+				log.Print(err)
+			}
+		}
+
+		c.Hub.Broadcast <- msg
+	}
 }
 
 // Hub manages WebSocket connections for a single room
@@ -53,6 +137,7 @@ func (h *Hub) Run() {
 		select {
 		case <-h.stop:
 			return
+
 		case client := <-h.Register:
 			h.mu.Lock()
 			h.Clients[client] = true
@@ -62,40 +147,35 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			if _, ok := h.Clients[client]; ok {
 				delete(h.Clients, client)
+				close(client.Send)
 			}
 			h.mu.Unlock()
 
 		case msg := <-h.Broadcast:
-			h.mu.RLock()
 			msgFulltxt := msg.Message
-			var failed []*Client
+			h.mu.Lock()
 			for client := range h.Clients {
-				msg.Message = msgFulltxt
+				clientMsg := msg
+				clientMsg.Message = msgFulltxt
 				if client.Username == msg.User {
-					msg.Owner = true
+					clientMsg.Owner = true
 				} else {
-					msg.Owner = false
+					clientMsg.Owner = false
 				}
-				if msg.Event == "OPEN" {
-					msg.Message = fmt.Sprintf("---- %s님이 입장하셨습니다. ----", msg.User)
-				} else if msg.Event == "CLOSE" {
-					msg.Message = fmt.Sprintf("---- %s님이 퇴장하셨습니다. ----", msg.User)
+				if clientMsg.Event == "OPEN" {
+					clientMsg.Message = fmt.Sprintf("---- %s님이 입장하셨습니다. ----", clientMsg.User)
+				} else if clientMsg.Event == "CLOSE" {
+					clientMsg.Message = fmt.Sprintf("---- %s님이 퇴장하셨습니다. ----", clientMsg.User)
 				}
-				err := client.WriteJSON(msg)
-				if err != nil {
-					log.Printf("error writing to client: %v", err)
-					client.Conn.Close()
-					failed = append(failed, client)
+				select {
+				case client.Send <- clientMsg:
+				default:
+					// Slow client: close and remove.
+					close(client.Send)
+					delete(h.Clients, client)
 				}
 			}
-			h.mu.RUnlock()
-			if len(failed) > 0 {
-				h.mu.Lock()
-				for _, c := range failed {
-					delete(h.Clients, c)
-				}
-				h.mu.Unlock()
-			}
+			h.mu.Unlock()
 		}
 	}
 }
@@ -156,6 +236,7 @@ func (rm *roomManager) RemoveHub(roomID string) {
 		close(hub.stop)
 		hub.mu.Lock()
 		for client := range hub.Clients {
+			close(client.Send)
 			client.Conn.Close()
 			delete(hub.Clients, client)
 		}
@@ -170,6 +251,7 @@ func (rm *roomManager) ShutdownAll() {
 		close(hub.stop)
 		hub.mu.Lock()
 		for client := range hub.Clients {
+			close(client.Send)
 			client.Conn.Close()
 			delete(hub.Clients, client)
 		}
@@ -200,68 +282,38 @@ func RoomWebSocket(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer ws.Close()
 
 	clientNm := GetUsername(c)
-
 	hub := RoomMgr.GetOrCreateHub(roomID)
 	client := &Client{
+		Hub:      hub,
 		Conn:     ws,
+		Send:     make(chan mongodb.ChatMessage, 256),
 		Username: clientNm,
 		RoomID:   roomID,
 	}
 
 	hub.Register <- client
-	defer func() {
-		hub.Unregister <- client
-	}()
 
-	// 채팅 이력 전송
+	// Send chat history directly via client.Send before starting writePump goroutine
 	chatList, err := mongodb.FindChatByRoom(roomID)
 	if err == nil {
 		for _, pastChat := range chatList {
-			var tmpMsg mongodb.ChatMessage
-			tmpMsg.User = pastChat.User
-			tmpMsg.Message = pastChat.Message
-			tmpMsg.RoomID = roomID
+			tmpMsg := mongodb.ChatMessage{
+				User:    pastChat.User,
+				Message: pastChat.Message,
+				RoomID:  roomID,
+				Event:   "CHATLOG",
+			}
 			if pastChat.User == clientNm {
 				tmpMsg.Owner = true
-			} else {
-				tmpMsg.Owner = false
 			}
-			tmpMsg.Event = "CHATLOG"
-			client.WriteJSON(&tmpMsg)
+			client.Send <- tmpMsg
 		}
 	}
 
-	for {
-		var msg mongodb.ChatMessage
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("error reading: %v", err)
-			msg.Event = "CLOSE"
-			msg.User = clientNm
-			msg.RoomID = roomID
-			hub.Broadcast <- msg
-			break
-		}
-		msg.User = clientNm
-		msg.RoomID = roomID
-
-		if msg.Event != "OPEN" {
-			chatMessage := mongodb.ChatMessage{
-				User:    msg.User,
-				Message: msg.Message,
-				RoomID:  roomID,
-			}
-			err = mongodb.InsertChat(chatMessage)
-			if err != nil {
-				log.Print(err)
-			}
-		}
-
-		hub.Broadcast <- msg
-	}
+	go client.writePump()
+	client.readPump() // blocking
 	return nil
 }
 
@@ -276,65 +328,37 @@ func MsgReceiver(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	defer ws.Close()
 
 	clientNm := GetUsername(c)
 	roomID := defaultRoom.ID.Hex()
 
 	hub := RoomMgr.GetOrCreateHub(roomID)
 	client := &Client{
+		Hub:      hub,
 		Conn:     ws,
+		Send:     make(chan mongodb.ChatMessage, 256),
 		Username: clientNm,
 		RoomID:   roomID,
 	}
 
 	hub.Register <- client
-	defer func() {
-		hub.Unregister <- client
-	}()
 
 	chatList, err := mongodb.FindChatByRoom(roomID)
 	if err == nil {
 		for _, pastChat := range chatList {
-			var tmpMsg mongodb.ChatMessage
-			tmpMsg.User = pastChat.User
-			tmpMsg.Message = pastChat.Message
+			tmpMsg := mongodb.ChatMessage{
+				User:    pastChat.User,
+				Message: pastChat.Message,
+				Event:   "CHATLOG",
+			}
 			if pastChat.User == clientNm {
 				tmpMsg.Owner = true
-			} else {
-				tmpMsg.Owner = false
 			}
-			tmpMsg.Event = "CHATLOG"
-			client.WriteJSON(&tmpMsg)
+			client.Send <- tmpMsg
 		}
 	}
 
-	for {
-		var msg mongodb.ChatMessage
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("error: %v", err)
-			msg.Event = "CLOSE"
-			msg.User = clientNm
-			hub.Broadcast <- msg
-			break
-		}
-		msg.User = clientNm
-		msg.RoomID = roomID
-
-		if msg.Event != "OPEN" {
-			chatMessage := mongodb.ChatMessage{
-				User:    msg.User,
-				Message: msg.Message,
-				RoomID:  roomID,
-			}
-			err = mongodb.InsertChat(chatMessage)
-			if err != nil {
-				log.Print(err)
-			}
-		}
-
-		hub.Broadcast <- msg
-	}
+	go client.writePump()
+	client.readPump() // blocking
 	return nil
 }

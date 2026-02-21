@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"context"
 	"time"
 
 	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
@@ -25,6 +26,9 @@ func init() {
 	if db.DB == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	collection := "users"
 	db.DB.CreateCollection(ctx, collection)
 	userCollection = db.DB.Collection(collection)
@@ -38,6 +42,9 @@ func init() {
 }
 
 func CreateUser(username, password, displayName string) (*User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -59,6 +66,9 @@ func CreateUser(username, password, displayName string) (*User, error) {
 }
 
 func FindUserByUsername(username string) (*User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	filter := bson.D{{Key: "username", Value: username}}
 	var user User
 	err := userCollection.FindOne(ctx, filter).Decode(&user)

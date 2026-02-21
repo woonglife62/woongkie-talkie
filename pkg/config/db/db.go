@@ -26,7 +26,7 @@ func init() {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(config.DBConfig.URI).SetAuth(options.Credential{
 		Username: config.DBConfig.User,
 		Password: config.DBConfig.Password,
-	}))
+	}).SetMaxPoolSize(50).SetMinPoolSize(5).SetMaxConnIdleTime(30*time.Second).SetServerSelectionTimeout(5*time.Second))
 	if err != nil {
 		log.Printf("warning: MongoDB connect error: %v", err)
 		return

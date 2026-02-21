@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -31,6 +32,9 @@ func init() {
 	if db.DB == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	collection := "rooms"
 	db.DB.CreateCollection(ctx, collection)
 	roomCollection = db.DB.Collection(collection)
@@ -42,8 +46,18 @@ func init() {
 	}
 	roomCollection.Indexes().CreateOne(ctx, indexModel)
 
+	// is_public 인덱스 생성
+	roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "is_public", Value: 1}},
+	})
+
+	// is_default 인덱스 생성
+	roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "is_default", Value: 1}},
+	})
+
 	// 기본 "general" 채팅방 생성
-	ensureDefaultRoom()
+	ensureDefaultRoom(ctx)
 
 	// 기존 메시지를 general 방으로 마이그레이션
 	defaultRoom, err := FindDefaultRoom()
@@ -52,7 +66,7 @@ func init() {
 	}
 }
 
-func ensureDefaultRoom() {
+func ensureDefaultRoom(ctx context.Context) {
 	filter := bson.D{{Key: "is_default", Value: true}}
 	var existing Room
 	err := roomCollection.FindOne(ctx, filter).Decode(&existing)
@@ -72,6 +86,9 @@ func ensureDefaultRoom() {
 }
 
 func CreateRoom(room Room) (*Room, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	room.CreatedAt = time.Now()
 	if room.Members == nil {
 		room.Members = []string{}
@@ -85,6 +102,9 @@ func CreateRoom(room Room) (*Room, error) {
 }
 
 func FindRooms() ([]Room, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	filter := bson.D{{Key: "is_public", Value: true}}
 	cur, err := roomCollection.Find(ctx, filter)
 	if err != nil {
@@ -104,6 +124,9 @@ func FindRooms() ([]Room, error) {
 }
 
 func FindRoomByID(id string) (*Room, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return nil, err
@@ -118,6 +141,9 @@ func FindRoomByID(id string) (*Room, error) {
 }
 
 func FindDefaultRoom() (*Room, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	filter := bson.D{{Key: "is_default", Value: true}}
 	var room Room
 	err := roomCollection.FindOne(ctx, filter).Decode(&room)
@@ -138,12 +164,19 @@ func DeleteRoom(id string, username string) error {
 	if room.CreatedBy != username {
 		return errors.New("채팅방 생성자만 삭제할 수 있습니다")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	objID, _ := primitive.ObjectIDFromHex(id)
 	_, err = roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
 	return err
 }
 
 func JoinRoom(roomID string, username string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	objID, err := primitive.ObjectIDFromHex(roomID)
 	if err != nil {
 		return err
@@ -208,6 +241,9 @@ func CheckRoomPassword(room *Room, password string) bool {
 }
 
 func LeaveRoom(roomID string, username string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	objID, err := primitive.ObjectIDFromHex(roomID)
 	if err != nil {
 		return err

@@ -15,10 +15,10 @@ func Initialize(isDev bool) {
 
 	if isDev {
 		config = zap.NewDevelopmentEncoderConfig()
-		defaultLogLevel = zapcore.InfoLevel
+		defaultLogLevel = zapcore.DebugLevel
 	} else {
 		config = zap.NewProductionEncoderConfig()
-		defaultLogLevel = zapcore.DebugLevel
+		defaultLogLevel = zapcore.InfoLevel
 	}
 	config.EncodeTime = zapcore.ISO8601TimeEncoder
 	consoleEncoder := zapcore.NewConsoleEncoder(config)

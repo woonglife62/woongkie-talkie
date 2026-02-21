@@ -40,6 +40,8 @@ func newTestServer(t *testing.T, fn func(conn *websocket.Conn)) *httptest.Server
 
 // makeClient creates a *Client backed by a real WebSocket connection pair
 // (server side + client side). The returned cleanup func closes both ends.
+// The client's writePump is started so hub.Broadcast messages flow through
+// client.Send -> writePump -> WebSocket -> clientConn.
 func makeClient(t *testing.T, username, roomID string) (*Client, *websocket.Conn, func()) {
 	t.Helper()
 	var serverConn *websocket.Conn
@@ -69,9 +71,13 @@ func makeClient(t *testing.T, username, roomID string) (*Client, *websocket.Conn
 
 	client := &Client{
 		Conn:     sc,
+		Send:     make(chan mongodb.ChatMessage, 256),
 		Username: username,
 		RoomID:   roomID,
 	}
+	// Start writePump so messages sent to client.Send reach clientConn.
+	go client.writePump()
+
 	cleanup := func() {
 		clientConn.Close()
 		sc.Close()

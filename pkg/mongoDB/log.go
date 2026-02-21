@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"context"
 	"time"
 
 	"github.com/woonglife62/woongkie-talkie/pkg/config/db"
@@ -23,6 +24,9 @@ func init() {
 	if db.DB == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// log 컬렉션 만들기
 	collection := "log"
 	db.DB.CreateCollection(ctx, collection)
@@ -31,17 +35,15 @@ func init() {
 
 // log 저장
 func InsertLog(logMessage LogMessage) (err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	log := Log{
 		DateTime:   time.Now(),
 		LogMessage: logMessage,
 	}
 
-	doc, err := toDoc(log)
-	if err != nil {
-		return err
-	}
-
-	logCollection.InsertOne(ctx, doc)
+	_, err = logCollection.InsertOne(ctx, log)
 	if err != nil {
 		return err
 	}

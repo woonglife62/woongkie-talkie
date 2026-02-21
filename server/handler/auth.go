@@ -32,11 +32,11 @@ func RegisterHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
 	}
 
-	if len(req.Username) < 3 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상이어야 합니다"})
+	if len(req.Username) < 3 || len(req.Username) > 30 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상 30자 이하이어야 합니다"})
 	}
-	if len(req.Password) < 6 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 6자 이상이어야 합니다"})
+	if len(req.Password) < 6 || len(req.Password) > 72 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 6자 이상 72자 이하이어야 합니다"})
 	}
 
 	displayName := req.DisplayName

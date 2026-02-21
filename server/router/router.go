@@ -18,9 +18,9 @@ func Router(e *echo.Echo) {
 	e.GET("/health", handler.HealthHandler)
 	e.GET("/ready", handler.ReadyHandler)
 
-	// 인증 엔드포인트 (미들웨어에서 스킵됨)
-	e.POST("/auth/register", handler.RegisterHandler)
-	e.POST("/auth/login", handler.LoginHandler)
+	// 인증 엔드포인트 (미들웨어에서 스킵됨, 별도 rate limit 적용)
+	e.POST("/auth/register", handler.RegisterHandler, middleware.AuthRateLimit())
+	e.POST("/auth/login", handler.LoginHandler, middleware.AuthRateLimit())
 	e.GET("/auth/me", handler.MeHandler)
 
 	// 로그인 페이지
