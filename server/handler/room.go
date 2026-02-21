@@ -159,11 +159,17 @@ func LeaveRoomHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에서 나갔습니다"})
 }
 
+type MessagesResponse struct {
+	Messages []mongodb.Chat `json:"messages"`
+	HasMore  bool           `json:"has_more"`
+}
+
 // GET /rooms/:id/messages
 func GetRoomMessagesHandler(c echo.Context) error {
 	id := c.Param("id")
 
 	beforeStr := c.QueryParam("before")
+	afterStr := c.QueryParam("after")
 	limitStr := c.QueryParam("limit")
 
 	limit := int64(50)
@@ -171,6 +177,21 @@ func GetRoomMessagesHandler(c echo.Context) error {
 		if l, err := strconv.ParseInt(limitStr, 10, 64); err == nil && l > 0 && l <= 100 {
 			limit = l
 		}
+	}
+
+	if afterStr != "" {
+		after, err := time.Parse(time.RFC3339, afterStr)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 시간 형식입니다"})
+		}
+		chats, err := mongodb.FindChatByRoomAfter(id, after)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "메시지 조회에 실패했습니다"})
+		}
+		if chats == nil {
+			chats = []mongodb.Chat{}
+		}
+		return c.JSON(http.StatusOK, MessagesResponse{Messages: chats, HasMore: false})
 	}
 
 	if beforeStr != "" {
@@ -185,7 +206,7 @@ func GetRoomMessagesHandler(c echo.Context) error {
 		if chats == nil {
 			chats = []mongodb.Chat{}
 		}
-		return c.JSON(http.StatusOK, chats)
+		return c.JSON(http.StatusOK, MessagesResponse{Messages: chats, HasMore: len(chats) == int(limit)})
 	}
 
 	chats, err := mongodb.FindChatByRoom(id)
@@ -195,7 +216,7 @@ func GetRoomMessagesHandler(c echo.Context) error {
 	if chats == nil {
 		chats = []mongodb.Chat{}
 	}
-	return c.JSON(http.StatusOK, chats)
+	return c.JSON(http.StatusOK, MessagesResponse{Messages: chats, HasMore: len(chats) >= 100})
 }
 
 // GET /rooms/default

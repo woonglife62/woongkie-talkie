@@ -8,9 +8,21 @@ import (
 	"github.com/woonglife62/woongkie-talkie/server/middleware"
 )
 
+func getViewPath() string {
+	// Check if running in container (view at /app/view)
+	if _, err := os.Stat("/app/view"); err == nil {
+		return "/app/view"
+	}
+	// Fallback: relative to executable or GOPATH
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		return gopath + "/src/woongkie-talkie/view"
+	}
+	return "./view"
+}
+
 func Router(e *echo.Echo) {
 
-	e.Static("/view", os.ExpandEnv("$GOPATH/src/woongkie-talkie/view"))
+	e.Static("/view", getViewPath())
 
 	middleware.Middleware(e)
 

@@ -2,14 +2,17 @@ package handler
 
 import (
 	"fmt"
-	"log"
+	"html"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	"github.com/woonglife62/woongkie-talkie/server/middleware"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -32,6 +35,7 @@ type Client struct {
 	Send     chan mongodb.ChatMessage // per-client send buffer
 	Username string
 	RoomID   string
+	msgLimit *rate.Limiter
 }
 
 // writePump pumps messages from the Send channel to the WebSocket connection.
@@ -51,7 +55,10 @@ func (c *Client) writePump() {
 				return
 			}
 			if err := c.Conn.WriteJSON(msg); err != nil {
-				log.Printf("writePump WriteJSON error for %s: %v", c.Username, err)
+				logger.Logger.Warnw("writePump WriteJSON error",
+					"username", c.Username,
+					"error", err,
+				)
 				return
 			}
 		case <-ticker.C:
@@ -66,6 +73,10 @@ func (c *Client) writePump() {
 // readPump pumps messages from the WebSocket to the hub's Broadcast channel.
 func (c *Client) readPump() {
 	defer func() {
+		logger.Logger.Infow("client disconnected",
+			"room_id", c.RoomID,
+			"username", c.Username,
+		)
 		// Send CLOSE event to notify other clients.
 		msg := mongodb.ChatMessage{
 			Event:  "CLOSE",
@@ -88,7 +99,10 @@ func (c *Client) readPump() {
 		err := c.Conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("readPump error for %s: %v", c.Username, err)
+				logger.Logger.Warnw("readPump unexpected close error",
+					"username", c.Username,
+					"error", err,
+				)
 			}
 			return
 		}
@@ -96,13 +110,50 @@ func (c *Client) readPump() {
 		msg.RoomID = c.RoomID
 
 		if msg.Event != "OPEN" {
+			// Rate limit: 30 msg/min per client
+			if !c.msgLimit.Allow() {
+				warn := mongodb.ChatMessage{
+					User:    "system",
+					Message: "메시지 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.",
+					RoomID:  c.RoomID,
+					Event:   "WARN",
+				}
+				select {
+				case c.Send <- warn:
+				default:
+				}
+				continue
+			}
+
+			// Validate message length (max 2000 chars)
+			if len([]rune(msg.Message)) > 2000 {
+				warn := mongodb.ChatMessage{
+					User:    "system",
+					Message: "메시지는 2000자를 초과할 수 없습니다.",
+					RoomID:  c.RoomID,
+					Event:   "WARN",
+				}
+				select {
+				case c.Send <- warn:
+				default:
+				}
+				continue
+			}
+
+			// Sanitize message content
+			msg.Message = html.EscapeString(msg.Message)
+
 			chatMessage := mongodb.ChatMessage{
 				User:    msg.User,
 				Message: msg.Message,
 				RoomID:  c.RoomID,
 			}
 			if err := mongodb.InsertChat(chatMessage); err != nil {
-				log.Print(err)
+				logger.Logger.Errorw("failed to insert chat message",
+					"room_id", c.RoomID,
+					"username", c.Username,
+					"error", err,
+				)
 			}
 		}
 
@@ -142,12 +193,20 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.Clients[client] = true
 			h.mu.Unlock()
+			logger.Logger.Infow("client registered",
+				"room_id", client.RoomID,
+				"username", client.Username,
+			)
 
 		case client := <-h.Unregister:
 			h.mu.Lock()
 			if _, ok := h.Clients[client]; ok {
 				delete(h.Clients, client)
 				close(client.Send)
+				logger.Logger.Infow("client unregistered",
+					"room_id", client.RoomID,
+					"username", client.Username,
+				)
 			}
 			h.mu.Unlock()
 
@@ -291,9 +350,14 @@ func RoomWebSocket(c echo.Context) error {
 		Send:     make(chan mongodb.ChatMessage, 256),
 		Username: clientNm,
 		RoomID:   roomID,
+		msgLimit: middleware.NewWSMessageLimiter(),
 	}
 
 	hub.Register <- client
+	logger.Logger.Infow("client connected",
+		"room_id", roomID,
+		"username", clientNm,
+	)
 
 	// Send chat history directly via client.Send before starting writePump goroutine
 	chatList, err := mongodb.FindChatByRoom(roomID)
@@ -339,9 +403,14 @@ func MsgReceiver(c echo.Context) error {
 		Send:     make(chan mongodb.ChatMessage, 256),
 		Username: clientNm,
 		RoomID:   roomID,
+		msgLimit: middleware.NewWSMessageLimiter(),
 	}
 
 	hub.Register <- client
+	logger.Logger.Infow("client connected",
+		"room_id", roomID,
+		"username", clientNm,
+	)
 
 	chatList, err := mongodb.FindChatByRoom(roomID)
 	if err == nil {

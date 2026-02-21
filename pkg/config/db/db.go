@@ -2,10 +2,10 @@ package db
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -28,7 +28,7 @@ func init() {
 		Password: config.DBConfig.Password,
 	}).SetMaxPoolSize(50).SetMinPoolSize(5).SetMaxConnIdleTime(30*time.Second).SetServerSelectionTimeout(5*time.Second))
 	if err != nil {
-		log.Printf("warning: MongoDB connect error: %v", err)
+		logger.Logger.Warnw("MongoDB connect error", "error", err)
 		return
 	}
 	// defer client.Disconnect(ctx)
@@ -36,7 +36,7 @@ func init() {
 	// Ping
 	err = client.Ping(ctx, readpref.Primary())
 	if err != nil {
-		log.Printf("warning: MongoDB ping failed: %v", err)
+		logger.Logger.Warnw("MongoDB ping failed", "error", err)
 		return
 	}
 

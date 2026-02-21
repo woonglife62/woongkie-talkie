@@ -134,6 +134,37 @@ func FindChatByRoomBefore(roomID string, before time.Time, limit int64) (chat []
 	return chat, nil
 }
 
+// 재연결 시 놓친 메시지 조회
+func FindChatByRoomAfter(roomID string, after time.Time) ([]Chat, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.D{
+		{Key: "room_id", Value: roomID},
+		{Key: "Date Time", Value: bson.D{{Key: "$gt", Value: after}}},
+	}
+	opts := options.Find().SetSort(bson.D{{Key: "Date Time", Value: 1}}).SetLimit(200)
+
+	cur, err := chatCollection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+
+	var chats []Chat
+	for cur.Next(ctx) {
+		var result Chat
+		if err := cur.Decode(&result); err != nil {
+			return nil, err
+		}
+		chats = append(chats, result)
+	}
+	if chats == nil {
+		chats = []Chat{}
+	}
+	return chats, nil
+}
+
 // 기존 호환 - 모든 chat 가져오기
 func FindChat() (chat []Chat, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

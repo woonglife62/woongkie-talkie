@@ -60,18 +60,19 @@ func (rl *ipRateLimiter) cleanupLoop() {
 	}
 }
 
-// globalLimiter: 20 requests/second per IP, burst of 40
-var globalLimiter = newIPRateLimiter(20, 40)
+// globalLimiter: 100 requests/minute per IP, burst of 10
+var globalLimiter = newIPRateLimiter(rate.Every(time.Minute/100), 10)
 
 // authLimiter: stricter limit for auth endpoints — 5 requests/minute per IP, burst of 5
 var authLimiter = newIPRateLimiter(rate.Every(12*time.Second), 5)
 
-// RateLimit returns a middleware that applies per-IP rate limiting.
+// RateLimit returns a middleware that applies per-IP rate limiting (100 req/min).
 func RateLimit() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			ip := c.RealIP()
 			if !globalLimiter.getLimiter(ip).Allow() {
+				c.Response().Header().Set("Retry-After", "1")
 				return c.JSON(http.StatusTooManyRequests, map[string]string{
 					"error": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
 				})
@@ -87,6 +88,7 @@ func AuthRateLimit() echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			ip := c.RealIP()
 			if !authLimiter.getLimiter(ip).Allow() {
+				c.Response().Header().Set("Retry-After", "12")
 				return c.JSON(http.StatusTooManyRequests, map[string]string{
 					"error": "인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
 				})
@@ -94,4 +96,9 @@ func AuthRateLimit() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// NewWSMessageLimiter creates a per-client WebSocket message rate limiter (30 msg/min).
+func NewWSMessageLimiter() *rate.Limiter {
+	return rate.NewLimiter(rate.Every(2*time.Second), 5)
 }

@@ -160,6 +160,11 @@
         var reconnectDelay = 1000;
         var reconnectTimer = null;
         var isReconnecting = false;
+        var reconnectAttempts = 0;
+        var loading = false;
+        var hasMore = true;
+        var oldestTimestamp = null;
+        var lastMessageTimestamp = null;
 
         // 모든 AJAX 요청에 JWT 토큰 헤더 추가
         $.ajaxSetup({
@@ -272,6 +277,11 @@
             }
             reconnectDelay = 1000;
             isReconnecting = false;
+            reconnectAttempts = 0;
+            loading = false;
+            hasMore = true;
+            oldestTimestamp = null;
+            lastMessageTimestamp = null;
             if (ws) {
                 ws.close();
                 ws = null;
@@ -289,6 +299,31 @@
 
             connectWebSocket(roomId);
             loadMembers(roomId);
+            loadInitialMessages(roomId);
+        }
+
+        // 방 입장 시 최근 메시지 REST로 로드하여 oldestTimestamp 초기화
+        function loadInitialMessages(roomId) {
+            $.ajax({
+                url: '/rooms/' + roomId + '/messages',
+                headers: { Authorization: 'Bearer ' + token },
+                success: function(data) {
+                    var messages = data.messages || [];
+                    hasMore = data.has_more;
+
+                    $('#result').empty();
+                    for (var i = 0; i < messages.length; i++) {
+                        var msg = messages[i];
+                        var chatMsg = msg['Chat Message'] || msg;
+                        appendMsg(chatMsg.User, chatMsg.message, chatMsg.User === currentUser);
+                    }
+
+                    if (messages.length > 0) {
+                        oldestTimestamp = messages[0].DateTime || messages[0]['Date Time'];
+                        lastMessageTimestamp = new Date().toISOString();
+                    }
+                }
+            });
         }
 
         // 연결 상태 UI 업데이트
@@ -319,15 +354,38 @@
             ws = new WebSocket(uri);
 
             ws.onopen = function () {
+                var wasReconnecting = reconnectAttempts > 0;
                 reconnectDelay = 1000;
                 isReconnecting = false;
                 setConnStatus('connected');
+
+                // 재연결 시 놓친 메시지 복구
+                if (wasReconnecting && lastMessageTimestamp) {
+                    $.ajax({
+                        url: '/rooms/' + roomId + '/messages?after=' + encodeURIComponent(lastMessageTimestamp),
+                        headers: { Authorization: 'Bearer ' + token },
+                        success: function(data) {
+                            var messages = data.messages || [];
+                            for (var i = 0; i < messages.length; i++) {
+                                var msg = messages[i];
+                                var chatMsg = msg['Chat Message'] || msg;
+                                appendMsg(chatMsg.User, chatMsg.message, chatMsg.User === currentUser);
+                            }
+                            if (messages.length > 0) {
+                                lastMessageTimestamp = new Date().toISOString();
+                            }
+                        }
+                    });
+                }
+
+                reconnectAttempts = 0;
                 var sendData = { event: "OPEN" };
                 ws.send(JSON.stringify(sendData));
             };
 
             ws.onmessage = function (event) {
                 var recData = JSON.parse(event.data);
+                lastMessageTimestamp = new Date().toISOString();
                 appendMessage(recData);
             };
 
@@ -340,6 +398,7 @@
                 console.log('WebSocket closed for room: ' + roomId + '. Reconnecting in ' + reconnectDelay + 'ms');
                 setConnStatus('reconnecting');
                 isReconnecting = true;
+                reconnectAttempts++;
                 reconnectTimer = setTimeout(function () {
                     if (currentRoomID === roomId) {
                         connectWebSocket(roomId);
@@ -400,6 +459,140 @@
                 beep();
             }
         }
+
+        // 재연결 후 놓친 메시지 추가용 (owner 판별 포함)
+        function appendMsg(user, message, isOwner) {
+            var outArea = document.getElementById('result');
+            var newTagP = document.createElement('p');
+            var newTagSpan = document.createElement('span');
+
+            if (isOwner) {
+                newTagP.setAttribute('class', 'p-me preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-me');
+            } else {
+                newTagP.setAttribute('class', 'p-you preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-you');
+
+                var newTagSpanUser = document.createElement('span');
+                newTagSpanUser.setAttribute('class', 'user-name');
+                newTagSpanUser.innerText = user || '';
+                newTagP.appendChild(newTagSpanUser);
+
+                var newTagSpanSpace = document.createElement('span');
+                newTagSpanSpace.setAttribute('class', 'user-name-space');
+                newTagSpanSpace.innerText = ' ';
+                newTagP.appendChild(newTagSpanSpace);
+            }
+
+            if (message && validURL(message)) {
+                if (!validProtocol(message)) {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                } else {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                }
+            } else {
+                newTagSpan.textContent = message || '';
+            }
+
+            newTagP.appendChild(newTagSpan);
+            outArea.appendChild(newTagP);
+
+            var vScrollDown = $('#result').prop('scrollHeight');
+            $('#result').scrollTop(vScrollDown);
+        }
+
+        // 이전 메시지를 맨 위에 추가 (무한 스크롤)
+        function prependChatMessage(chatMsg) {
+            var outArea = document.getElementById('result');
+            var newTagP = document.createElement('p');
+            var newTagSpan = document.createElement('span');
+            var user = chatMsg.User || '';
+            var message = chatMsg.message || '';
+            var isOwner = user === currentUser;
+
+            if (isOwner) {
+                newTagP.setAttribute('class', 'p-me preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-me');
+            } else {
+                newTagP.setAttribute('class', 'p-you preserve-whitespace');
+                newTagSpan.setAttribute('class', 'span-you');
+
+                var newTagSpanUser = document.createElement('span');
+                newTagSpanUser.setAttribute('class', 'user-name');
+                newTagSpanUser.innerText = user;
+                newTagP.appendChild(newTagSpanUser);
+
+                var newTagSpanSpace = document.createElement('span');
+                newTagSpanSpace.setAttribute('class', 'user-name-space');
+                newTagSpanSpace.innerText = ' ';
+                newTagP.appendChild(newTagSpanSpace);
+            }
+
+            if (message && validURL(message)) {
+                if (!validProtocol(message)) {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                } else {
+                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank">' + escapeHtml(message) + '</a>';
+                }
+            } else {
+                newTagSpan.textContent = message;
+            }
+
+            newTagP.appendChild(newTagSpan);
+            outArea.insertBefore(newTagP, outArea.firstChild);
+        }
+
+        // 이전 메시지 로딩 (무한 스크롤)
+        function loadOlderMessages() {
+            if (!oldestTimestamp || loading || !hasMore) return;
+            loading = true;
+            $('#result').prepend('<div id="load-spinner" class="text-center py-2"><small class="text-muted">이전 메시지 로딩 중...</small></div>');
+
+            var scrollHeight = $('#result')[0].scrollHeight;
+
+            $.ajax({
+                url: '/rooms/' + currentRoomID + '/messages?before=' + encodeURIComponent(oldestTimestamp) + '&limit=50',
+                headers: { Authorization: 'Bearer ' + token },
+                success: function(data) {
+                    $('#load-spinner').remove();
+                    var messages = data.messages || [];
+                    hasMore = data.has_more;
+
+                    if (messages.length === 0) {
+                        hasMore = false;
+                        $('#result').prepend('<div class="text-center py-2"><small class="text-muted">대화의 시작입니다</small></div>');
+                        loading = false;
+                        return;
+                    }
+
+                    oldestTimestamp = messages[0].DateTime || messages[0]['Date Time'];
+
+                    // 역순으로 prepend (messages는 오래된 것부터 정렬)
+                    for (var i = messages.length - 1; i >= 0; i--) {
+                        var msg = messages[i];
+                        var chatMsg = msg['Chat Message'] || msg;
+                        prependChatMessage(chatMsg);
+                    }
+
+                    // 스크롤 위치 보존
+                    var newScrollHeight = $('#result')[0].scrollHeight;
+                    $('#result')[0].scrollTop = newScrollHeight - scrollHeight;
+
+                    loading = false;
+                },
+                error: function() {
+                    $('#load-spinner').remove();
+                    loading = false;
+                }
+            });
+        }
+
+        // 무한 스크롤: #result 최상단 도달 시 이전 메시지 로드
+        $('#result').on('scroll', function() {
+            if (this.scrollTop === 0 && !loading && hasMore) {
+                loadOlderMessages();
+            }
+        });
 
         // 참여자 목록 로드
         function loadMembers(roomId) {

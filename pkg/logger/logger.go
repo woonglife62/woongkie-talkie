@@ -8,23 +8,35 @@ import (
 )
 
 var Logger *zap.SugaredLogger
+var RawLogger *zap.Logger
 
 func Initialize(isDev bool) {
-	var config zapcore.EncoderConfig
+	var encConfig zapcore.EncoderConfig
 	var defaultLogLevel zapcore.Level
+	var encoder zapcore.Encoder
 
 	if isDev {
-		config = zap.NewDevelopmentEncoderConfig()
+		encConfig = zap.NewDevelopmentEncoderConfig()
 		defaultLogLevel = zapcore.DebugLevel
+		encConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		encoder = zapcore.NewConsoleEncoder(encConfig)
 	} else {
-		config = zap.NewProductionEncoderConfig()
+		encConfig = zap.NewProductionEncoderConfig()
 		defaultLogLevel = zapcore.InfoLevel
+		encConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		encConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+		encoder = zapcore.NewJSONEncoder(encConfig)
 	}
-	config.EncodeTime = zapcore.ISO8601TimeEncoder
-	consoleEncoder := zapcore.NewConsoleEncoder(config)
+
 	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), defaultLogLevel),
+		zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), defaultLogLevel),
 	)
-	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.WarnLevel))
-	Logger = logger.Sugar()
+	RawLogger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+	Logger = RawLogger.Sugar()
+}
+
+func Sync() {
+	if RawLogger != nil {
+		RawLogger.Sync()
+	}
 }
