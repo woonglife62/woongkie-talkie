@@ -1,0 +1,85 @@
+version: '3'
+
+vars:
+  BINARY_NAME: woongkie-talkie
+  BUILD_DIR: ./bin
+
+tasks:
+  default:
+    desc: Run the application
+    cmds:
+      - task: run
+
+  build:
+    desc: Build the Go binary
+    cmds:
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} .
+    sources:
+      - ./**/*.go
+    generates:
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
+
+  run:
+    desc: Run the application locally
+    cmds:
+      - go run . serve
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./... -v
+
+  test:handler:
+    desc: Run handler tests only
+    cmds:
+      - go test ./server/handler/ -v
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run go vet and build verification
+    cmds:
+      - go vet ./...
+      - go build ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+
+  docker:up:
+    desc: Start all services with Docker Compose
+    cmds:
+      - docker-compose up --build -d
+
+  docker:down:
+    desc: Stop all Docker Compose services
+    cmds:
+      - docker-compose down
+
+  docker:logs:
+    desc: Follow Docker Compose logs
+    cmds:
+      - docker-compose logs -f
+
+  docker:build:
+    desc: Build Docker image only
+    cmds:
+      - docker build -t {{.BINARY_NAME}} .
+
+  env:
+    desc: Copy .env.example to .env (if .env does not exist)
+    status:
+      - test -f .env
+    cmds:
+      - cp .env.example .env
+      - echo ".env created from .env.example. Please edit it."
+
+  mod:
+    desc: Tidy and download Go modules
+    cmds:
+      - go mod tidy
+      - go mod download
