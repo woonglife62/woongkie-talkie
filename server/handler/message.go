@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"html"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -38,6 +39,7 @@ func EditMessageHandler(c echo.Context) error {
 	if req.Message == "" || len([]rune(req.Message)) > 2000 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "메시지는 1자 이상 2000자 이하이어야 합니다"})
 	}
+	req.Message = html.EscapeString(req.Message)
 
 	updated, err := mongodb.EditChat(msgID, username, req.Message)
 	if err != nil {
@@ -128,6 +130,7 @@ func ReplyMessageHandler(c echo.Context) error {
 	if req.Message == "" || len([]rune(req.Message)) > 2000 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "메시지는 1자 이상 2000자 이하이어야 합니다"})
 	}
+	req.Message = html.EscapeString(req.Message)
 
 	// Verify the parent message exists
 	_, err := mongodb.FindChatByID(msgID)

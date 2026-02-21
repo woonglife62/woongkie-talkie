@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -20,8 +21,6 @@ func AllowedOrigins() []string {
 			"http://127.0.0.1",
 			"https://127.0.0.1",
 		)
-		// Also add with any port
-		allowed = append(allowed, "localhost", "127.0.0.1")
 	}
 
 	// Add from environment variable
@@ -38,6 +37,8 @@ func AllowedOrigins() []string {
 }
 
 // CheckOrigin validates WebSocket upgrade requests against allowed origins.
+// It uses url.Parse to extract the exact hostname, preventing prefix-spoofing
+// attacks (e.g. "localhost.evil.com" matching a "localhost" prefix check).
 func CheckOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	// No Origin header (e.g. non-browser clients or same-origin) – allow
@@ -45,19 +46,28 @@ func CheckOrigin(r *http.Request) bool {
 		return true
 	}
 
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := originURL.Hostname() // strips port, returns bare hostname
+
 	allowed := AllowedOrigins()
 	for _, o := range allowed {
-		if strings.EqualFold(origin, o) {
-			return true
+		allowedURL, err := url.Parse(o)
+		if err != nil {
+			continue
 		}
-		// Support prefix matching for localhost with arbitrary ports
-		if strings.HasPrefix(o, "localhost") || strings.HasPrefix(o, "127.0.0.1") {
-			// Strip scheme from origin for comparison
-			stripped := strings.TrimPrefix(origin, "http://")
-			stripped = strings.TrimPrefix(stripped, "https://")
-			if strings.HasPrefix(stripped, o) {
-				return true
-			}
+		allowedHost := allowedURL.Hostname()
+
+		// Scheme must match
+		if !strings.EqualFold(originURL.Scheme, allowedURL.Scheme) {
+			continue
+		}
+		// Exact hostname match (case-insensitive); port is ignored to
+		// allow arbitrary dev ports (e.g. localhost:3000, localhost:5173).
+		if strings.EqualFold(originHost, allowedHost) {
+			return true
 		}
 	}
 	return false

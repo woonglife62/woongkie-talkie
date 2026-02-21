@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"os"
 
 	"github.com/labstack/echo/v4"
@@ -21,6 +22,10 @@ func getViewPath() string {
 }
 
 func Router(e *echo.Echo) {
+	// pprof는 ENABLE_PPROF=true 환경변수가 설정된 경우에만 활성화
+	if os.Getenv("ENABLE_PPROF") == "true" {
+		e.GET("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
+	}
 
 	e.Static("/view", getViewPath())
 

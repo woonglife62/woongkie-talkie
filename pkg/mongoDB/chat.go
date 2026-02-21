@@ -216,6 +216,7 @@ func FindChatByRoomBefore(roomID string, before time.Time, limit int64) (chat []
 	filter := bson.D{
 		{Key: "room_id", Value: roomID},
 		{Key: "created_at", Value: bson.D{{Key: "$lt", Value: before}}},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 	}
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(limit)
 
@@ -317,7 +318,9 @@ func FindChatByID(messageID string) (*Chat, error) {
 }
 
 // EditChat updates the message text for the given message ID, only if the requesting
-// user is the owner and the message is within the 5-minute edit window.
+// user is the owner, the message is within the 5-minute edit window, and not deleted.
+// The ownership, time-window, and deletion checks are performed atomically inside the
+// MongoDB filter to eliminate the TOCTOU race between FindOne and FindOneAndUpdate.
 func EditChat(messageID, username, newMessage string) (*Chat, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -327,22 +330,30 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 		return nil, err
 	}
 
+	// First verify the document exists and return appropriate errors if not editable.
 	var chat Chat
 	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
 	if err != nil {
 		return nil, err
 	}
-
 	if chat.User != username {
 		return nil, ErrForbidden
-	}
-	if time.Since(chat.CreatedAt) > 5*time.Minute {
-		return nil, ErrEditWindowExpired
 	}
 	if chat.IsDeleted {
 		return nil, ErrMessageDeleted
 	}
+	if time.Since(chat.CreatedAt) > 5*time.Minute {
+		return nil, ErrEditWindowExpired
+	}
 
+	cutoff := time.Now().Add(-5 * time.Minute)
+	// Atomically update only if user, edit window, and not-deleted conditions still hold.
+	filter := bson.D{
+		{Key: "_id", Value: oid},
+		{Key: "user", Value: username},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
+		{Key: "created_at", Value: bson.D{{Key: "$gt", Value: cutoff}}},
+	}
 	now := time.Now()
 	update := bson.D{{Key: "$set", Value: bson.D{
 		{Key: "message", Value: newMessage},
@@ -350,7 +361,11 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 	}}}
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 	var updated Chat
-	err = chatCollection.FindOneAndUpdate(ctx, bson.D{{Key: "_id", Value: oid}}, update, opts).Decode(&updated)
+	err = chatCollection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updated)
+	if err == mongo.ErrNoDocuments {
+		// Conditions no longer met (window expired, deleted, or wrong user concurrently)
+		return nil, ErrEditWindowExpired
+	}
 	if err != nil {
 		return nil, err
 	}

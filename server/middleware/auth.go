@@ -41,11 +41,6 @@ func jwtAuth(e *echo.Echo) {
 				}
 			}
 
-			// WebSocket용 query param 폴백
-			if tokenString == "" {
-				tokenString = c.QueryParam("token")
-			}
-
 			if tokenString == "" {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "인증 토큰이 필요합니다"})
 			}

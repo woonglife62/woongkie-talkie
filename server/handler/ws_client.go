@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"html"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"github.com/woonglife62/woongkie-talkie/pkg/metrics"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	redisclient "github.com/woonglife62/woongkie-talkie/pkg/redis"
 	"github.com/woonglife62/woongkie-talkie/server/middleware"
 	"golang.org/x/time/rate"
 )
@@ -140,6 +142,14 @@ func (c *Client) writePump() {
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
+			// Refresh Redis presence TTL so the user stays marked online (#100).
+			if err := redisclient.RefreshOnline(context.Background(), c.RoomID, c.Username); err != nil {
+				logger.Logger.Warnw("writePump: RefreshOnline failed",
+					"room_id", c.RoomID,
+					"username", c.Username,
+					"error", err,
+				)
+			}
 		}
 	}
 }
@@ -209,6 +219,17 @@ func (c *Client) readPump() {
 		}
 		msg.User = c.Username
 		msg.RoomID = c.RoomID
+
+		// Whitelist: only accept MSG and TYPING_* events from clients.
+		// Reject any other event type (e.g. OPEN, CLOSE, WARN) to prevent
+		// clients from spoofing server-generated events (#102).
+		if msg.Event != "MSG" && msg.Event != "TYPING_START" && msg.Event != "TYPING_STOP" {
+			logger.Logger.Warnw("readPump: rejected disallowed event type",
+				"username", c.Username,
+				"event", msg.Event,
+			)
+			continue
+		}
 
 		if msg.Event != "OPEN" {
 			// Typing events: update Redis presence and broadcast without saving to MongoDB

@@ -109,9 +109,9 @@ func TestJWTAuth_ValidBearerToken(t *testing.T) {
 	assert.Equal(t, "alice", rec.Body.String())
 }
 
-// TestJWTAuth_ValidQueryParamToken verifies that a valid JWT in the ?token=
-// query parameter grants access (WebSocket fallback path).
-func TestJWTAuth_ValidQueryParamToken(t *testing.T) {
+// TestJWTAuth_QueryParamTokenRejected verifies that a JWT in the ?token=
+// query parameter is rejected (#109: query param tokens removed for security).
+func TestJWTAuth_QueryParamTokenRejected(t *testing.T) {
 	config.JWTConfig.Secret = testSecret
 	e := setupEcho()
 
@@ -122,8 +122,7 @@ func TestJWTAuth_ValidQueryParamToken(t *testing.T) {
 
 	e.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "bob", rec.Body.String())
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 // TestJWTAuth_MissingToken verifies that a request with no token to a

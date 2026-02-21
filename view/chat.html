@@ -338,20 +338,31 @@
         }
 
         // 채팅방 목록 렌더링
-        function renderRoomList(rooms) {
-            var $list = $('#room-list');
-            $list.empty();
+        // #120: HTML이 변경된 경우에만 DOM 재구성 (불필요한 재렌더링 방지)
+        function buildRoomListHTML(rooms) {
+            var html = '';
             rooms.forEach(function (room) {
                 var onlineCount = room.online_members ? room.online_members.length : 0;
                 var activeClass = room.id === currentRoomID ? 'room-item active' : 'room-item';
                 var defaultBadge = room.is_default ? ' <span class="badge bg-secondary">기본</span>' : '';
-                var $item = $('<div class="' + activeClass + '" data-room-id="' + room.id + '">' +
+                html += '<div class="' + activeClass + '" data-room-id="' + room.id + '">' +
                     '<div class="room-item-name">' + escapeHtml(room.name) + defaultBadge + '</div>' +
                     '<div class="room-item-info">' +
                     '<span class="room-item-members">' + onlineCount + '명 접속</span>' +
                     '</div>' +
-                    '</div>');
-                $item.on('click', function () {
+                    '</div>';
+            });
+            return html;
+        }
+
+        function renderRoomList(rooms) {
+            var $list = $('#room-list');
+            var newHTML = buildRoomListHTML(rooms);
+            if ($list.html() === newHTML) return;
+            $list.html(newHTML);
+            // 클릭 이벤트 바인딩
+            rooms.forEach(function (room) {
+                $list.find('[data-room-id="' + room.id + '"]').on('click', function () {
                     var roomId = $(this).data('room-id');
                     if (roomId === currentRoomID) return;
 
@@ -365,7 +376,6 @@
 
                     joinAndSwitch(roomId, room.name, room.description);
                 });
-                $list.append($item);
             });
         }
 
@@ -658,8 +668,12 @@
             outArea.appendChild(newTagP);
             trimOldMessages();
 
-            var vScrollDown = $("#result").prop('scrollHeight');
-            $("#result").scrollTop(vScrollDown);
+            // #123: 사용자가 하단 100px 이내에 있을 때만 자동 스크롤
+            var $result = $("#result");
+            var distFromBottom = $result[0].scrollHeight - $result[0].scrollTop - $result[0].clientHeight;
+            if (distFromBottom <= 100) {
+                $result.scrollTop($result[0].scrollHeight);
+            }
 
             if (recData.Event === "MESSAGE") {
                 beep();
@@ -704,8 +718,12 @@
             outArea.appendChild(newTagP);
             trimOldMessages();
 
-            var vScrollDown = $('#result').prop('scrollHeight');
-            $('#result').scrollTop(vScrollDown);
+            // #123: 사용자가 하단 100px 이내에 있을 때만 자동 스크롤
+            var $result = $('#result');
+            var distFromBottom = $result[0].scrollHeight - $result[0].scrollTop - $result[0].clientHeight;
+            if (distFromBottom <= 100) {
+                $result.scrollTop($result[0].scrollHeight);
+            }
         }
 
         // 이전 메시지를 맨 위에 추가 (무한 스크롤)
@@ -981,9 +999,11 @@
         }
 
         // 유틸리티 함수
+        // #119: 전역 Audio 객체 재사용 (Audio leak 방지)
+        var _beepAudio = new Audio("/view/sound/alert.mp3");
         function beep() {
-            var snd = new Audio("/view/sound/alert.mp3");
-            snd.play();
+            _beepAudio.currentTime = 0;
+            _beepAudio.play();
         }
 
         function validURL(str) {

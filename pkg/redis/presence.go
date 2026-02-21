@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -84,8 +86,17 @@ func ClearTyping(ctx context.Context, roomID, username string) error {
 	return err
 }
 
+// RefreshOnline resets the TTL for a user's presence key, keeping them marked online.
+// Call this periodically (e.g. on WebSocket ping) to prevent stale expiry.
+func RefreshOnline(ctx context.Context, roomID, username string) error {
+	if client == nil {
+		return fmt.Errorf("redis: client not initialized")
+	}
+	return client.Expire(ctx, presenceUserKey(roomID, username), presenceTTL).Err()
+}
+
 // GetOnlineUsers returns all online usernames in a room.
-// Uses SMEMBERS and filters out users whose TTL key has expired.
+// Uses SMEMBERS then a single Pipeline of EXISTS checks to avoid N+1 round-trips.
 func GetOnlineUsers(ctx context.Context, roomID string) ([]string, error) {
 	if client == nil {
 		return nil, fmt.Errorf("redis: client not initialized")
@@ -94,19 +105,30 @@ func GetOnlineUsers(ctx context.Context, roomID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(members) == 0 {
+		return []string{}, nil
+	}
+
+	pipe := client.Pipeline()
+	cmds := make([]*redis.IntCmd, len(members))
+	for i, username := range members {
+		cmds[i] = pipe.Exists(ctx, presenceUserKey(roomID, username))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
 
 	active := make([]string, 0, len(members))
-	for _, username := range members {
-		exists, err := client.Exists(ctx, presenceUserKey(roomID, username)).Result()
-		if err != nil {
-			continue
-		}
-		if exists > 0 {
+	stale := make([]interface{}, 0)
+	for i, username := range members {
+		if cmds[i].Val() > 0 {
 			active = append(active, username)
 		} else {
-			// TTL key expired; clean up stale Set member
-			client.SRem(ctx, presenceSetKey(roomID), username)
+			stale = append(stale, username)
 		}
+	}
+	if len(stale) > 0 {
+		client.SRem(ctx, presenceSetKey(roomID), stale...)
 	}
 	return active, nil
 }
