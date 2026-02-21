@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jinzhu/configor"
 	"github.com/joho/godotenv"
@@ -16,6 +17,14 @@ type config struct {
 	// PROD, prod, product
 	IsDev string `env:"IS_DEV" validate:"required"`
 }
+
+// ShutdownTimeout is the duration to wait for graceful shutdown.
+// Controlled by the SHUTDOWN_TIMEOUT env var (e.g. "30s", "1m"). Default: 30s.
+var ShutdownTimeout = 30 * time.Second
+
+// HubIdleTimeout is the duration a hub can be empty before it auto-shuts down.
+// Controlled by the HUB_IDLE_TIMEOUT env var (e.g. "5m", "10m"). Default: 5m.
+var HubIdleTimeout = 5 * time.Minute
 
 // mongoDB config
 type dbConfig struct {
@@ -84,6 +93,18 @@ func LoadAll() error {
 
 	if err := loadTLS(); err != nil {
 		return fmt.Errorf("tls config error: %w", err)
+	}
+
+	if v := os.Getenv("SHUTDOWN_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			ShutdownTimeout = d
+		}
+	}
+
+	if v := os.Getenv("HUB_IDLE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			HubIdleTimeout = d
+		}
 	}
 
 	return nil

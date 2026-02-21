@@ -40,6 +40,7 @@ func Router(e *echo.Echo) {
 	// 인증 엔드포인트 (미들웨어에서 스킵됨, 별도 rate limit 적용)
 	e.POST("/auth/register", handler.RegisterHandler, middleware.AuthRateLimit())
 	e.POST("/auth/login", handler.LoginHandler, middleware.AuthRateLimit())
+	e.POST("/auth/logout", handler.LogoutHandler)
 	e.POST("/auth/refresh", handler.RefreshHandler)
 	e.GET("/auth/me", handler.MeHandler)
 
@@ -52,7 +53,7 @@ func Router(e *echo.Echo) {
 
 	// 채팅방 REST API
 	e.GET("/rooms/default", handler.GetDefaultRoomHandler)
-	e.POST("/rooms", handler.CreateRoomHandler)
+	e.POST("/rooms", handler.CreateRoomHandler, middleware.RoomCreateRateLimit())
 	e.GET("/rooms", handler.ListRoomsHandler)
 	e.GET("/rooms/:id", handler.GetRoomHandler)
 	e.DELETE("/rooms/:id", handler.DeleteRoomHandler)

@@ -66,6 +66,9 @@ var globalLimiter = newIPRateLimiter(rate.Every(time.Minute/100), 10)
 // authLimiter: stricter limit for auth endpoints — 5 requests/minute per IP, burst of 5
 var authLimiter = newIPRateLimiter(rate.Every(12*time.Second), 5)
 
+// roomCreateLimiter: 5 room creations/minute per IP, burst of 5
+var roomCreateLimiter = newIPRateLimiter(rate.Every(12*time.Second), 5)
+
 // RateLimit returns a middleware that applies per-IP rate limiting (100 req/min).
 func RateLimit() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -91,6 +94,22 @@ func AuthRateLimit() echo.MiddlewareFunc {
 				c.Response().Header().Set("Retry-After", "12")
 				return c.JSON(http.StatusTooManyRequests, map[string]string{
 					"error": "인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
+				})
+			}
+			return next(c)
+		}
+	}
+}
+
+// RoomCreateRateLimit returns a middleware for room creation — 5 rooms/minute per IP.
+func RoomCreateRateLimit() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ip := c.RealIP()
+			if !roomCreateLimiter.getLimiter(ip).Allow() {
+				c.Response().Header().Set("Retry-After", "12")
+				return c.JSON(http.StatusTooManyRequests, map[string]string{
+					"error": "채팅방 생성 요청이 너무 많습니다. 잠시 후 다시 시도해주세요",
 				})
 			}
 			return next(c)

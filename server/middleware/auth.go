@@ -34,6 +34,13 @@ func jwtAuth(e *echo.Echo) {
 				tokenString = strings.TrimPrefix(auth, "Bearer ")
 			}
 
+			// httpOnly 쿠키에서 추출 (헤더 없을 때 폴백)
+			if tokenString == "" {
+				if cookie, err := c.Cookie("auth_token"); err == nil && cookie.Value != "" {
+					tokenString = cookie.Value
+				}
+			}
+
 			// WebSocket용 query param 폴백
 			if tokenString == "" {
 				tokenString = c.QueryParam("token")

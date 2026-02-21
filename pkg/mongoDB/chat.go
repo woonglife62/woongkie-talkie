@@ -121,6 +121,34 @@ func migrateChatSchema(ctx context.Context) error {
 	return nil
 }
 
+// InsertManyChat bulk-inserts a slice of ChatMessages into MongoDB.
+// Returns the count of inserted documents and any error.
+func InsertManyChat(messages []ChatMessage) (int, error) {
+	if len(messages) == 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	docs := make([]interface{}, len(messages))
+	for i, msg := range messages {
+		docs[i] = Chat{
+			CreatedAt: time.Now(),
+			RoomID:    msg.RoomID,
+			Event:     msg.Event,
+			User:      msg.User,
+			Message:   msg.Message,
+			Owner:     msg.Owner,
+		}
+	}
+
+	result, err := chatCollection.InsertMany(ctx, docs)
+	if err != nil {
+		return 0, err
+	}
+	return len(result.InsertedIDs), nil
+}
+
 // chat message 저장 (room_id 포함)
 // Returns the inserted document ID as a hex string and any error.
 func InsertChat(chatMessage ChatMessage) (string, error) {
@@ -146,7 +174,7 @@ func InsertChat(chatMessage ChatMessage) (string, error) {
 	return "", nil
 }
 
-// room별 chat 내용 가져오기 (최근 100건)
+// room별 chat 내용 가져오기 (최근 100건, 시간 오름차순)
 func FindChatByRoom(roomID string) (chat []Chat, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -157,7 +185,8 @@ func FindChatByRoom(roomID string) (chat []Chat, err error) {
 		{Key: "room_id", Value: roomID},
 		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 	}
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(100)
+	// Sort ascending by _id (ObjectID embeds timestamp) to get chronological order efficiently.
+	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}).SetLimit(100)
 
 	cur, err := chatCollection.Find(ctx, filter, opts)
 	if err != nil {
@@ -172,11 +201,6 @@ func FindChatByRoom(roomID string) (chat []Chat, err error) {
 			return chat, err
 		}
 		chat = append(chat, result)
-	}
-
-	// 시간순 정렬 (역순 -> 정순)
-	for i, j := 0, len(chat)-1; i < j; i, j = i+1, j-1 {
-		chat[i], chat[j] = chat[j], chat[i]
 	}
 
 	return chat, nil

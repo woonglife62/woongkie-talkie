@@ -9,7 +9,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	"go.uber.org/zap"
 )
 
 var usernameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,30}$`)
@@ -28,6 +30,36 @@ type LoginRequest struct {
 type AuthResponse struct {
 	Token string       `json:"token"`
 	User  mongodb.User `json:"user"`
+}
+
+// setAuthCookie writes the JWT as an httpOnly, Secure, SameSite=Strict cookie.
+func setAuthCookie(c echo.Context, token string, expiry time.Duration) {
+	cookie := new(http.Cookie)
+	cookie.Name = "auth_token"
+	cookie.Value = token
+	cookie.HttpOnly = true
+	cookie.Secure = true
+	cookie.SameSite = http.SameSiteStrictMode
+	cookie.Path = "/"
+	if expiry > 0 {
+		cookie.Expires = time.Now().Add(expiry)
+		cookie.MaxAge = int(expiry.Seconds())
+	}
+	c.SetCookie(cookie)
+}
+
+// clearAuthCookie expires the auth cookie immediately.
+func clearAuthCookie(c echo.Context) {
+	cookie := new(http.Cookie)
+	cookie.Name = "auth_token"
+	cookie.Value = ""
+	cookie.HttpOnly = true
+	cookie.Secure = true
+	cookie.SameSite = http.SameSiteStrictMode
+	cookie.Path = "/"
+	cookie.MaxAge = -1
+	cookie.Expires = time.Unix(0, 0)
+	c.SetCookie(cookie)
 }
 
 func RegisterHandler(c echo.Context) error {
@@ -50,6 +82,7 @@ func RegisterHandler(c echo.Context) error {
 
 	user, err := mongodb.CreateUser(req.Username, req.Password, displayName)
 	if err != nil {
+		logger.AuditLog("register_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "duplicate"))
 		return c.JSON(http.StatusConflict, map[string]string{"error": "이미 존재하는 사용자 이름입니다"})
 	}
 
@@ -58,6 +91,13 @@ func RegisterHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
 	}
 
+	expiry, _ := time.ParseDuration(config.JWTConfig.Expiry)
+	if expiry == 0 {
+		expiry = 24 * time.Hour
+	}
+	setAuthCookie(c, token, expiry)
+
+	logger.AuditLog("register_success", user.Username, zap.String("ip", c.RealIP()))
 	return c.JSON(http.StatusCreated, AuthResponse{Token: token, User: *user})
 }
 
@@ -69,10 +109,12 @@ func LoginHandler(c echo.Context) error {
 
 	user, err := mongodb.FindUserByUsername(req.Username)
 	if err != nil {
+		logger.AuditLog("login_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "user_not_found"))
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자 이름 또는 비밀번호가 올바르지 않습니다"})
 	}
 
 	if !mongodb.CheckPassword(user, req.Password) {
+		logger.AuditLog("login_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "wrong_password"))
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자 이름 또는 비밀번호가 올바르지 않습니다"})
 	}
 
@@ -81,6 +123,13 @@ func LoginHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
 	}
 
+	expiry, _ := time.ParseDuration(config.JWTConfig.Expiry)
+	if expiry == 0 {
+		expiry = 24 * time.Hour
+	}
+	setAuthCookie(c, token, expiry)
+
+	logger.AuditLog("login_success", user.Username, zap.String("ip", c.RealIP()))
 	return c.JSON(http.StatusOK, AuthResponse{Token: token, User: *user})
 }
 
@@ -95,12 +144,26 @@ func MeHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, user)
 }
 
+func LogoutHandler(c echo.Context) error {
+	username := GetUsername(c)
+	clearAuthCookie(c)
+	logger.AuditLog("logout", username, zap.String("ip", c.RealIP()))
+	return c.JSON(http.StatusOK, map[string]string{"message": "로그아웃 되었습니다"})
+}
+
 func RefreshHandler(c echo.Context) error {
-	auth := c.Request().Header.Get("Authorization")
 	tokenString := ""
-	if strings.HasPrefix(auth, "Bearer ") {
-		tokenString = strings.TrimPrefix(auth, "Bearer ")
+
+	// Try cookie first, fall back to Authorization header
+	if cookie, err := c.Cookie("auth_token"); err == nil && cookie.Value != "" {
+		tokenString = cookie.Value
+	} else {
+		auth := c.Request().Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") {
+			tokenString = strings.TrimPrefix(auth, "Bearer ")
+		}
 	}
+
 	if tokenString == "" {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "토큰이 필요합니다"})
 	}
@@ -127,6 +190,13 @@ func RefreshHandler(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "토큰 생성에 실패했습니다"})
 	}
+
+	expiry, _ := time.ParseDuration(config.JWTConfig.Expiry)
+	if expiry == 0 {
+		expiry = 24 * time.Hour
+	}
+	setAuthCookie(c, newToken, expiry)
+
 	return c.JSON(http.StatusOK, map[string]string{"token": newToken})
 }
 

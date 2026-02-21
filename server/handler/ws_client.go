@@ -23,6 +23,9 @@ const (
 	insertWorkers   = 4
 	insertQueueSize = 1024
 	insertTimeout   = 5 * time.Second
+
+	insertBatchSize    = 50
+	insertBatchTimeout = 100 * time.Millisecond
 )
 
 var upgrader = websocket.Upgrader{
@@ -36,17 +39,44 @@ var insertQueue = make(chan mongodb.ChatMessage, insertQueueSize)
 
 func init() {
 	for i := 0; i < insertWorkers; i++ {
-		go func() {
-			for msg := range insertQueue {
-				if _, err := mongodb.InsertChat(msg); err != nil {
-					logger.Logger.Errorw("async InsertChat failed",
-						"room_id", msg.RoomID,
-						"username", msg.User,
-						"error", err,
-					)
-				}
+		go runInsertWorker()
+	}
+}
+
+// runInsertWorker batches messages from insertQueue and bulk-inserts them.
+// It flushes when the batch reaches insertBatchSize or insertBatchTimeout elapses.
+func runInsertWorker() {
+	batch := make([]mongodb.ChatMessage, 0, insertBatchSize)
+	ticker := time.NewTicker(insertBatchTimeout)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		if _, err := mongodb.InsertManyChat(batch); err != nil {
+			logger.Logger.Errorw("batch InsertManyChat failed",
+				"count", len(batch),
+				"error", err,
+			)
+		}
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case msg, ok := <-insertQueue:
+			if !ok {
+				flush()
+				return
 			}
-		}()
+			batch = append(batch, msg)
+			if len(batch) >= insertBatchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
 	}
 }
 

@@ -14,8 +14,33 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/view/favicon/favicon-32x32.png">
 
     <style>
+        :root {
+            --bg-body: #f5f5f5;
+            --bg-card: #ffffff;
+            --color-text: #333;
+            --color-tab-inactive: #999;
+            --color-border: #eee;
+            --color-input-bg: #fff;
+            --color-input-text: #333;
+            --color-input-border: #ced4da;
+            --color-label: #333;
+        }
+
+        [data-theme="dark"] {
+            --bg-body: #1a1b1e;
+            --bg-card: #2c2f33;
+            --color-text: #dcddde;
+            --color-tab-inactive: #72767d;
+            --color-border: #4f545c;
+            --color-input-bg: #36393f;
+            --color-input-text: #dcddde;
+            --color-input-border: #4f545c;
+            --color-label: #b9bbbe;
+        }
+
         body {
-            background-color: #f5f5f5;
+            background-color: var(--bg-body);
+            color: var(--color-text);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -30,7 +55,7 @@
         }
 
         .auth-card {
-            background: white;
+            background: var(--bg-card);
             border-radius: 12px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 40px 30px;
@@ -39,13 +64,14 @@
         .auth-card h2 {
             text-align: center;
             margin-bottom: 30px;
-            color: #333;
+            color: var(--color-text);
         }
 
         .auth-tabs {
             display: flex;
             margin-bottom: 25px;
-            border-bottom: 2px solid #eee;
+            border-bottom: 2px solid var(--color-border);
+            role: tablist;
         }
 
         .auth-tab {
@@ -53,10 +79,15 @@
             text-align: center;
             padding: 10px;
             cursor: pointer;
-            color: #999;
+            color: var(--color-tab-inactive);
             border-bottom: 2px solid transparent;
             margin-bottom: -2px;
             transition: all 0.2s;
+        }
+
+        :focus-visible {
+            outline: 3px solid #4a90d9;
+            outline-offset: 2px;
         }
 
         .auth-tab.active {
@@ -98,12 +129,42 @@
         .app-title {
             text-align: center;
             margin-bottom: 20px;
+            position: relative;
         }
 
         .app-title h1 {
             font-size: 1.8rem;
             color: #4a90d9;
             margin: 0;
+        }
+
+        .form-control {
+            background-color: var(--color-input-bg) !important;
+            color: var(--color-input-text) !important;
+            border-color: var(--color-input-border) !important;
+        }
+
+        .form-control::placeholder {
+            color: var(--color-tab-inactive) !important;
+        }
+
+        .form-label {
+            color: var(--color-label);
+        }
+
+        #login-theme-toggle {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: 1px solid var(--color-border);
+            color: var(--color-text);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 16px;
         }
     </style>
 </head>
@@ -112,49 +173,57 @@
     <div class="auth-container">
         <div class="app-title">
             <h1>Woongkie-Talkie</h1>
+            <button id="login-theme-toggle" title="다크 모드 전환" aria-label="다크 모드 전환">&#9790;</button>
         </div>
         <div class="auth-card">
-            <div class="auth-tabs">
-                <div class="auth-tab active" data-tab="login">로그인</div>
-                <div class="auth-tab" data-tab="register">회원가입</div>
+            <div class="auth-tabs" role="tablist" aria-label="인증 방법 선택">
+                <div class="auth-tab active" data-tab="login" role="tab" aria-selected="true" aria-controls="login-form" tabindex="0">로그인</div>
+                <div class="auth-tab" data-tab="register" role="tab" aria-selected="false" aria-controls="register-form" tabindex="-1">회원가입</div>
             </div>
 
             <!-- 로그인 폼 -->
-            <form id="login-form" class="auth-form active">
+            <form id="login-form" class="auth-form active" novalidate>
                 <div class="mb-3">
-                    <label class="form-label">사용자 이름</label>
-                    <input type="text" class="form-control" id="login-username" placeholder="사용자 이름" required>
+                    <label class="form-label" for="login-username">사용자 이름</label>
+                    <input type="text" class="form-control" id="login-username" placeholder="사용자 이름" required
+                        autocomplete="username" aria-required="true">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">비밀번호</label>
-                    <input type="password" class="form-control" id="login-password" placeholder="비밀번호" required>
+                    <label class="form-label" for="login-password">비밀번호</label>
+                    <input type="password" class="form-control" id="login-password" placeholder="비밀번호" required
+                        autocomplete="current-password" aria-required="true">
                 </div>
-                <div class="error-msg" id="login-error"></div>
+                <div class="error-msg" id="login-error" role="alert" aria-live="assertive"></div>
                 <button type="submit" class="btn btn-blue mt-2">로그인</button>
             </form>
 
             <!-- 회원가입 폼 -->
-            <form id="register-form" class="auth-form">
+            <form id="register-form" class="auth-form" novalidate>
                 <div class="mb-3">
-                    <label class="form-label">사용자 이름</label>
+                    <label class="form-label" for="reg-username">사용자 이름</label>
                     <input type="text" class="form-control" id="reg-username" placeholder="3자 이상" required
-                        minlength="3">
+                        minlength="3" autocomplete="username" aria-required="true"
+                        aria-describedby="reg-username-hint">
+                    <div id="reg-username-hint" class="form-text">3자 이상 입력하세요.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">표시 이름</label>
-                    <input type="text" class="form-control" id="reg-displayname" placeholder="(선택) 표시될 이름">
+                    <label class="form-label" for="reg-displayname">표시 이름</label>
+                    <input type="text" class="form-control" id="reg-displayname" placeholder="(선택) 표시될 이름"
+                        autocomplete="nickname">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">비밀번호</label>
+                    <label class="form-label" for="reg-password">비밀번호</label>
                     <input type="password" class="form-control" id="reg-password" placeholder="6자 이상" required
-                        minlength="6">
+                        minlength="6" autocomplete="new-password" aria-required="true"
+                        aria-describedby="reg-password-hint">
+                    <div id="reg-password-hint" class="form-text">6자 이상 입력하세요.</div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">비밀번호 확인</label>
+                    <label class="form-label" for="reg-password-confirm">비밀번호 확인</label>
                     <input type="password" class="form-control" id="reg-password-confirm" placeholder="비밀번호 확인"
-                        required>
+                        required autocomplete="new-password" aria-required="true">
                 </div>
-                <div class="error-msg" id="register-error"></div>
+                <div class="error-msg" id="register-error" role="alert" aria-live="assertive"></div>
                 <button type="submit" class="btn btn-blue mt-2">회원가입</button>
             </form>
         </div>
@@ -164,10 +233,38 @@
         integrity="sha256-H+K7U5CnXl1h5ywQfKtSj8PCmoN9aaq30gDh27Xc0jk=" crossorigin="anonymous"></script>
 
     <script>
-        // 이미 로그인된 경우 채팅으로 이동
-        if (localStorage.getItem('token')) {
-            window.location.href = '/client';
-        }
+        // ── 다크 모드 ──────────────────────────────────────────────────
+        (function () {
+            function applyTheme(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                var btn = document.getElementById('login-theme-toggle');
+                if (btn) btn.innerHTML = theme === 'dark' ? '&#9728;' : '&#9790;';
+                localStorage.setItem('theme', theme);
+            }
+
+            var saved = localStorage.getItem('theme');
+            if (saved) {
+                applyTheme(saved);
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                applyTheme('dark');
+            } else {
+                applyTheme('light');
+            }
+
+            document.getElementById('login-theme-toggle').addEventListener('click', function () {
+                var current = document.documentElement.getAttribute('data-theme');
+                applyTheme(current === 'dark' ? 'light' : 'dark');
+            });
+        })();
+
+        // 이미 로그인된 경우 채팅으로 이동 (쿠키 기반: /auth/me 호출로 확인)
+        $.ajax({
+            url: '/auth/me',
+            method: 'GET',
+            success: function () {
+                window.location.href = '/client';
+            }
+        });
 
         // 탭 전환
         $('.auth-tab').on('click', function () {
@@ -194,7 +291,7 @@
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 data: JSON.stringify({ username: username, password: password }),
                 success: function (res) {
-                    localStorage.setItem('token', res.token);
+                    // 토큰은 httpOnly 쿠키로 서버에서 설정됨. 사용자명만 저장
                     localStorage.setItem('username', res.user.username);
                     window.location.href = '/client';
                 },
@@ -231,7 +328,7 @@
                     display_name: displayName
                 }),
                 success: function (res) {
-                    localStorage.setItem('token', res.token);
+                    // 토큰은 httpOnly 쿠키로 서버에서 설정됨. 사용자명만 저장
                     localStorage.setItem('username', res.user.username);
                     window.location.href = '/client';
                 },

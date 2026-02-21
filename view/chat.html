@@ -11,6 +11,12 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
     <link rel="stylesheet" href="/view/style.css">
+    <style>
+        :focus-visible {
+            outline: 3px solid #4a90d9;
+            outline-offset: 2px;
+        }
+    </style>
 
     <script src="https://code.jquery.com/jquery-3.6.0.js"
         integrity="sha256-H+K7U5CnXl1h5ywQfKtSj8PCmoN9aaq30gDh27Xc0jk=" crossorigin="anonymous"></script>
@@ -40,83 +46,87 @@
 <body>
     <div id="app">
         <!-- 사이드바: 채팅방 목록 -->
-        <div id="sidebar">
+        <nav id="sidebar" aria-label="채팅방 목록">
             <div id="sidebar-header">
                 <h5>채팅방</h5>
                 <button class="btn btn-sm btn-blue" id="create-room-btn" data-bs-toggle="modal"
-                    data-bs-target="#createRoomModal">+</button>
+                    data-bs-target="#createRoomModal" aria-label="새 채팅방 만들기">+</button>
             </div>
-            <div id="room-list"></div>
+            <div id="room-list" role="list" aria-label="채팅방 목록"></div>
             <div id="sidebar-footer">
-                <div id="profile-info" data-bs-toggle="modal" data-bs-target="#profileModal" title="프로필 편집">
+                <div id="profile-info" data-bs-toggle="modal" data-bs-target="#profileModal" title="프로필 편집"
+                    role="button" tabindex="0" aria-label="프로필 편집">
                     <span id="profile-display-name-show"></span>
                     <span id="profile-bio-show"></span>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary mt-2 w-100" id="logout-btn">로그아웃</button>
+                <button class="btn btn-sm btn-outline-secondary mt-2 w-100" id="logout-btn" aria-label="로그아웃">로그아웃</button>
             </div>
-        </div>
+        </nav>
 
-        <div id="sidebar-backdrop"></div>
+        <div id="sidebar-backdrop" aria-hidden="true"></div>
 
         <!-- 메인 채팅 영역 -->
-        <div id="main-chat">
-            <div id="chat-header">
+        <main id="main-chat">
+            <header id="chat-header">
                 <div id="room-info">
-                    <button class="btn btn-sm" id="sidebar-toggle" style="display:none;">&#9776;</button>
-                    <span id="room-name">general</span>
+                    <button class="btn btn-sm" id="sidebar-toggle" style="display:none;" aria-label="사이드바 열기">&#9776;</button>
+                    <span id="room-name" aria-live="polite">general</span>
                     <span id="room-desc">기본 채팅방</span>
                 </div>
                 <div id="chat-header-right">
-                    <span id="conn-status" style="font-size:12px; margin-right:8px; color:#28a745;">&#9679; 연결됨</span>
-                    <span id="member-count">0</span>
-                    <button class="btn btn-sm btn-outline-secondary" id="toggle-members">참여자</button>
+                    <span id="conn-status" style="font-size:12px; margin-right:8px; color:#28a745;" aria-live="polite" aria-label="연결 상태">&#9679; 연결됨</span>
+                    <span id="member-count" aria-label="접속 중인 참여자 수">0</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="toggle-members" aria-label="참여자 목록 보기">참여자</button>
+                    <button id="theme-toggle" title="다크 모드 전환" aria-label="다크 모드 전환">&#9790;</button>
                 </div>
-            </div>
+            </header>
 
             <div id="chat-body">
-                <div class="shadow-xll p-3 bg-body rounded" id="result"></div>
+                <div class="shadow-xll p-3 bg-body rounded" id="result"
+                    role="log" aria-live="polite" aria-label="채팅 메시지"></div>
 
                 <!-- 참여자 패널 -->
-                <div id="members-panel" class="d-none">
+                <section id="members-panel" class="d-none" aria-label="참여자 목록">
                     <h6>참여자 목록</h6>
                     <div id="members-list"></div>
-                </div>
+                </section>
             </div>
 
-            <div id="typing-indicator"></div>
+            <div id="typing-indicator" aria-live="polite" aria-atomic="true"></div>
 
-            <div id="reply-preview">
+            <div id="reply-preview" aria-live="polite">
                 <span id="reply-preview-text"></span>
-                <button id="reply-cancel">&#10005;</button>
+                <button id="reply-cancel" aria-label="답장 취소">&#10005;</button>
             </div>
 
             <div id="post-message">
                 <div class="shadow-xl p-3 bg-body rounded">
                     <div class="input-group">
                         <input class="form-control" type="text" id="chat-message"
-                            placeholder="메시지를 입력하세요. (Enter로 전송)">
-                        <button class="btn btn-blue" type="button" id="submit-btn">전송</button>
+                            placeholder="메시지를 입력하세요. (Enter로 전송)"
+                            aria-label="메시지 입력">
+                        <button class="btn btn-blue" type="button" id="submit-btn" aria-label="메시지 전송">전송</button>
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <!-- 채팅방 생성 모달 -->
-    <div class="modal fade" id="createRoomModal" tabindex="-1">
+    <div class="modal fade" id="createRoomModal" tabindex="-1" aria-labelledby="createRoomModalTitle" aria-modal="true" role="dialog">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">채팅방 만들기</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="createRoomModalTitle">채팅방 만들기</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">채팅방 이름 *</label>
-                        <input type="text" class="form-control" id="new-room-name" placeholder="채팅방 이름">
+                        <label class="form-label" for="new-room-name">채팅방 이름 *</label>
+                        <input type="text" class="form-control" id="new-room-name" placeholder="채팅방 이름" aria-required="true">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">설명</label>
+                        <label class="form-label" for="new-room-desc">설명</label>
                         <input type="text" class="form-control" id="new-room-desc" placeholder="채팅방 설명">
                     </div>
                     <div class="mb-3 form-check">
@@ -124,11 +134,11 @@
                         <label class="form-check-label" for="new-room-public">공개 채팅방</label>
                     </div>
                     <div class="mb-3" id="password-field" style="display:none;">
-                        <label class="form-label">비밀번호</label>
+                        <label class="form-label" for="new-room-password">비밀번호</label>
                         <input type="password" class="form-control" id="new-room-password" placeholder="비밀번호">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">최대 인원 (0 = 무제한)</label>
+                        <label class="form-label" for="new-room-max">최대 인원 (0 = 무제한)</label>
                         <input type="number" class="form-control" id="new-room-max" value="0" min="0">
                     </div>
                 </div>
@@ -141,15 +151,16 @@
     </div>
 
     <!-- 비밀번호 입력 모달 -->
-    <div class="modal fade" id="passwordModal" tabindex="-1">
+    <div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalTitle" aria-modal="true" role="dialog">
         <div class="modal-dialog modal-sm">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">비밀번호 입력</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="passwordModalTitle">비밀번호 입력</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="password" class="form-control" id="join-room-password" placeholder="비밀번호">
+                    <label class="form-label" for="join-room-password">비밀번호</label>
+                    <input type="password" class="form-control" id="join-room-password" placeholder="비밀번호" aria-required="true" autocomplete="current-password">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-blue" id="confirm-join-password">참여</button>
@@ -159,20 +170,20 @@
     </div>
 
     <!-- 프로필 편집 모달 -->
-    <div class="modal fade" id="profileModal" tabindex="-1">
+    <div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profileModalTitle" aria-modal="true" role="dialog">
         <div class="modal-dialog modal-sm">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">프로필 편집</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="profileModalTitle">프로필 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">표시 이름</label>
-                        <input type="text" class="form-control" id="profile-display-name" maxlength="50" placeholder="표시 이름">
+                        <label class="form-label" for="profile-display-name">표시 이름</label>
+                        <input type="text" class="form-control" id="profile-display-name" maxlength="50" placeholder="표시 이름" autocomplete="nickname">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">소개</label>
+                        <label class="form-label" for="profile-bio">소개</label>
                         <input type="text" class="form-control" id="profile-bio" maxlength="200" placeholder="한 줄 소개">
                     </div>
                 </div>
@@ -185,15 +196,16 @@
     </div>
 
     <!-- 메시지 편집 모달 -->
-    <div class="modal fade" id="editMessageModal" tabindex="-1">
+    <div class="modal fade" id="editMessageModal" tabindex="-1" aria-labelledby="editMessageModalTitle" aria-modal="true" role="dialog">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">메시지 편집</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="editMessageModalTitle">메시지 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="text" class="form-control" id="edit-message-input" maxlength="2000">
+                    <label class="form-label" for="edit-message-input">메시지 내용</label>
+                    <input type="text" class="form-control" id="edit-message-input" maxlength="2000" aria-label="메시지 내용 편집">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
@@ -204,13 +216,9 @@
     </div>
 
     <script>
-        // JWT 토큰 확인 - 없으면 로그인 페이지로
-        var token = localStorage.getItem('token');
-        if (!token) {
-            window.location.href = '/login';
-        }
-
-        var currentUser = localStorage.getItem('username') || '';
+        // 쿠키 기반 인증: 서버가 httpOnly 쿠키로 JWT 관리
+        // username은 /auth/me 에서 로드
+        var currentUser = '';
         var ws = null;
         var currentRoomID = null;
         var currentRoomName = '';
@@ -232,111 +240,62 @@
         var typingTimer = null;
         var typingUsers = {};
 
-        // 모든 AJAX 요청에 JWT 토큰 헤더 추가
+        // 모든 AJAX 요청에 credentials 포함 (쿠키 자동 전송)
         $.ajaxSetup({
-            headers: {
-                'Authorization': 'Bearer ' + token,
-                'X-Requested-With': 'XMLHttpRequest'
-            }
+            xhrFields: { withCredentials: true },
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
 
-        // JWT 토큰 갱신
-        function refreshToken() {
-            return $.ajax({
-                url: '/auth/refresh',
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(function (data) {
-                token = data.token;
-                localStorage.setItem('token', token);
-                $.ajaxSetup({ headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' } });
-            });
-        }
-
-        // authFetch: native fetch를 감싸 401 시 토큰 갱신 후 재시도
+        // authFetch: native fetch를 감싸 credentials 포함, 401 시 로그인 페이지로
         function authFetch(url, options) {
             options = options || {};
+            options.credentials = 'include';
             options.headers = options.headers || {};
-            options.headers['Authorization'] = 'Bearer ' + token;
             options.headers['X-Requested-With'] = 'XMLHttpRequest';
             return fetch(url, options).then(function (response) {
-                if (response.status !== 401) {
-                    return response;
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
                 }
-                return fetch('/auth/refresh', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' }
-                }).then(function (refreshResp) {
-                    if (!refreshResp.ok) {
-                        localStorage.removeItem('token');
-                        localStorage.removeItem('username');
-                        window.location.href = '/login';
-                        return;
-                    }
-                    return refreshResp.json().then(function (data) {
-                        token = data.token;
-                        localStorage.setItem('token', token);
-                        $.ajaxSetup({ headers: { 'Authorization': 'Bearer ' + token, 'X-Requested-With': 'XMLHttpRequest' } });
-                        options.headers['Authorization'] = 'Bearer ' + token;
-                        return fetch(url, options);
-                    });
-                });
+                return response;
             });
         }
 
-        // $.ajax 401 처리: 갱신 후 재시도, 실패 시 로그인 페이지로
+        // $.ajax 401 처리: 로그인 페이지로
         $(document).ajaxError(function (event, jqXHR, ajaxSettings) {
             if (jqXHR.status === 401 && ajaxSettings.url !== '/auth/refresh') {
-                refreshToken().then(function () {
-                    $.ajax(ajaxSettings);
-                }).fail(function () {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('username');
-                    window.location.href = '/login';
-                });
+                window.location.href = '/login';
             }
         });
 
-        // 토큰 만료 5분 전 선제적 갱신
-        function scheduleTokenRefresh() {
-            try {
-                var payload = JSON.parse(atob(token.split('.')[1]));
-                var exp = payload.exp * 1000;
-                var delay = exp - Date.now() - 5 * 60 * 1000;
-                if (delay > 0) {
-                    setTimeout(function () {
-                        refreshToken().then(function () {
-                            scheduleTokenRefresh();
-                        }).fail(function () {
-                            localStorage.removeItem('token');
-                            localStorage.removeItem('username');
-                            window.location.href = '/login';
-                        });
-                    }, delay);
-                } else {
-                    refreshToken().then(function () {
-                        scheduleTokenRefresh();
-                    });
-                }
-            } catch (e) {
-                console.warn('토큰 파싱 실패, 선제적 갱신 비활성화:', e);
-            }
-        }
-        scheduleTokenRefresh();
-
-        // 초기화
+        // 초기화: /auth/me 로 인증 확인 및 사용자명 로드
         $(document).ready(function () {
-            $('#current-user-display').text(currentUser);
-            loadDefaultRoom();
-            loadRooms();
-            setInterval(loadRooms, 5000);
+            $.ajax({
+                url: '/auth/me',
+                method: 'GET',
+                success: function (user) {
+                    currentUser = user.username || '';
+                    localStorage.setItem('username', currentUser);
+                    $('#current-user-display').text(currentUser);
+                    loadDefaultRoom();
+                    loadRooms();
+                    setInterval(loadRooms, 5000);
+                },
+                error: function () {
+                    window.location.href = '/login';
+                }
+            });
         });
 
-        // 로그아웃
+        // 로그아웃: 서버에 POST /auth/logout 호출하여 쿠키 삭제
         $('#logout-btn').on('click', function () {
-            localStorage.removeItem('token');
-            localStorage.removeItem('username');
-            window.location.href = '/login';
+            $.ajax({
+                url: '/auth/logout',
+                method: 'POST',
+                complete: function () {
+                    window.location.href = '/login';
+                }
+            });
         });
 
         // 기본 채팅방 로드
@@ -449,7 +408,6 @@
         function loadInitialMessages(roomId) {
             $.ajax({
                 url: '/rooms/' + roomId + '/messages',
-                headers: { Authorization: 'Bearer ' + token },
                 success: function(data) {
                     var messages = data.messages || [];
                     hasMore = data.has_more;
@@ -480,7 +438,7 @@
             }
         }
 
-        // WebSocket 연결 (query param으로 토큰 전달, 지수 백오프 재연결)
+        // WebSocket 연결 (쿠키 기반 인증, 지수 백오프 재연결)
         function connectWebSocket(roomId) {
             if (reconnectTimer) {
                 clearTimeout(reconnectTimer);
@@ -491,7 +449,6 @@
             var uri = (loc.protocol === 'https:') ? 'wss:' : 'ws:';
             uri += '//' + loc.host;
             uri += '/rooms/' + roomId + '/ws';
-            uri += '?token=' + encodeURIComponent(token);
 
             ws = new WebSocket(uri);
 
@@ -505,7 +462,6 @@
                 if (wasReconnecting && lastMessageTimestamp) {
                     $.ajax({
                         url: '/rooms/' + roomId + '/messages?after=' + encodeURIComponent(lastMessageTimestamp),
-                        headers: { Authorization: 'Bearer ' + token },
                         success: function(data) {
                             var messages = data.messages || [];
                             for (var i = 0; i < messages.length; i++) {
@@ -782,7 +738,6 @@
 
             $.ajax({
                 url: '/rooms/' + currentRoomID + '/messages?before=' + encodeURIComponent(oldestTimestamp) + '&limit=50',
-                headers: { Authorization: 'Bearer ' + token },
                 success: function(data) {
                     $('#load-spinner').remove();
                     var messages = data.messages || [];
@@ -1289,6 +1244,159 @@
 
         // 초기 모바일 체크
         checkMobile();
+
+        // ── 모바일 터치: 롱프레스 컨텍스트 메뉴 ───────────────────────
+        (function () {
+            var longPressTimer = null;
+            var LONG_PRESS_MS = 500;
+            var $ctxMenu = null;
+
+            function showContextMenu(x, y, $p) {
+                removeContextMenu();
+                var msgId = $p.data('msg-id');
+                if (!msgId) return;
+
+                var isOwner = $p.hasClass('p-me');
+                var msgText = $p.find('.msg-text').text().substring(0, 50);
+
+                var items = '<div class="ctx-item ctx-reply">답장</div>';
+                if (isOwner) {
+                    items += '<div class="ctx-item ctx-edit">수정</div>';
+                    items += '<div class="ctx-item ctx-delete">삭제</div>';
+                }
+
+                $ctxMenu = $('<div id="ctx-menu">' + items + '</div>');
+                $ctxMenu.css({ top: y, left: x });
+                $('body').append($ctxMenu);
+
+                $ctxMenu.find('.ctx-reply').on('click', function () {
+                    setReplyTo(msgId, msgText);
+                    removeContextMenu();
+                });
+                $ctxMenu.find('.ctx-edit').on('click', function () {
+                    var currentText = $p.find('.msg-text').text();
+                    editingMsgID = msgId;
+                    $('#edit-message-input').val(currentText);
+                    new bootstrap.Modal(document.getElementById('editMessageModal')).show();
+                    removeContextMenu();
+                });
+                $ctxMenu.find('.ctx-delete').on('click', function () {
+                    removeContextMenu();
+                    if (!confirm('메시지를 삭제하시겠습니까?')) return;
+                    $.ajax({
+                        url: '/rooms/' + currentRoomID + '/messages/' + msgId,
+                        method: 'DELETE'
+                    });
+                });
+            }
+
+            function removeContextMenu() {
+                if ($ctxMenu) { $ctxMenu.remove(); $ctxMenu = null; }
+            }
+
+            $(document).on('touchstart', 'p[data-msg-id]', function (e) {
+                var $p = $(this);
+                var touch = e.originalEvent.touches[0];
+                longPressTimer = setTimeout(function () {
+                    e.preventDefault();
+                    showContextMenu(touch.clientX, touch.clientY, $p);
+                }, LONG_PRESS_MS);
+            });
+
+            $(document).on('touchend touchmove touchcancel', 'p[data-msg-id]', function () {
+                clearTimeout(longPressTimer);
+            });
+
+            $(document).on('click touchstart', function (e) {
+                if ($ctxMenu && !$(e.target).closest('#ctx-menu').length) {
+                    removeContextMenu();
+                }
+            });
+        })();
+
+        // ── 브라우저 알림 ──────────────────────────────────────────────
+        (function () {
+            var notifEnabled = localStorage.getItem('notif') !== 'off';
+
+            function updateNotifBtn() {
+                $('#notif-toggle').html(notifEnabled ? '&#128276;' : '&#128277;');
+                $('#notif-toggle').attr('title', notifEnabled ? '알림 끄기' : '알림 켜기');
+            }
+
+            // 알림 버튼을 헤더에 주입
+            if ('Notification' in window) {
+                var $btn = $('<button id="notif-toggle" style="background:none;border:1px solid var(--color-border);color:var(--color-sidebar-text);border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;padding:0;" aria-label="알림 설정"></button>');
+                $('#theme-toggle').after($btn);
+                updateNotifBtn();
+
+                $('#notif-toggle').on('click', function () {
+                    if (!notifEnabled) {
+                        Notification.requestPermission().then(function (perm) {
+                            if (perm === 'granted') {
+                                notifEnabled = true;
+                                localStorage.setItem('notif', 'on');
+                                updateNotifBtn();
+                            }
+                        });
+                    } else {
+                        notifEnabled = false;
+                        localStorage.setItem('notif', 'off');
+                        updateNotifBtn();
+                    }
+                });
+
+                // 최초 방문 시 권한 요청
+                if (notifEnabled && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+            }
+
+            // 메시지 수신 시 알림 표시
+            var _origBeep = beep;
+            beep = function () {
+                _origBeep();
+                if (notifEnabled &&
+                    'Notification' in window &&
+                    Notification.permission === 'granted' &&
+                    document.hidden) {
+                    new Notification('Woongkie-Talkie', {
+                        body: '새 메시지가 도착했습니다.',
+                        icon: '/view/favicon/favicon-32x32.png'
+                    });
+                }
+            };
+        })();
+
+        // ── 다크 모드 ──────────────────────────────────────────────────
+        (function () {
+            function applyTheme(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                $('#theme-toggle').html(theme === 'dark' ? '&#9728;' : '&#9790;');
+                localStorage.setItem('theme', theme);
+            }
+
+            var saved = localStorage.getItem('theme');
+            if (saved) {
+                applyTheme(saved);
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                applyTheme('dark');
+            } else {
+                applyTheme('light');
+            }
+
+            $('#theme-toggle').on('click', function () {
+                var current = document.documentElement.getAttribute('data-theme');
+                applyTheme(current === 'dark' ? 'light' : 'dark');
+            });
+
+            if (window.matchMedia) {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+                    if (!localStorage.getItem('theme')) {
+                        applyTheme(e.matches ? 'dark' : 'light');
+                    }
+                });
+            }
+        })();
     </script>
 </body>
 

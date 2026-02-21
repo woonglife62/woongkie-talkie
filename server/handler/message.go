@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	"go.uber.org/zap"
 )
 
 type EditMessageRequest struct {
@@ -41,6 +43,7 @@ func EditMessageHandler(c echo.Context) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, mongodb.ErrForbidden):
+			logger.AuditLog("message_edit_forbidden", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "수정 권한이 없습니다"})
 		case errors.Is(err, mongodb.ErrEditWindowExpired):
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "5분이 지나 수정할 수 없습니다"})
@@ -50,6 +53,7 @@ func EditMessageHandler(c echo.Context) error {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "메시지를 찾을 수 없습니다"})
 		}
 	}
+	logger.AuditLog("message_edited", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 
 	// Broadcast MSG_EDIT event to room
 	hub := RoomMgr.GetHub(roomID)
@@ -82,11 +86,14 @@ func DeleteMessageHandler(c echo.Context) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, mongodb.ErrForbidden):
+			logger.AuditLog("message_delete_forbidden", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "삭제 권한이 없습니다"})
 		default:
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "메시지를 찾을 수 없습니다"})
 		}
 	}
+
+	logger.AuditLog("message_deleted", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 
 	// Broadcast MSG_DELETE event to room
 	hub := RoomMgr.GetHub(roomID)

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	"go.uber.org/zap"
 )
 
 type CreateRoomRequest struct {
@@ -63,9 +65,11 @@ func CreateRoomHandler(c echo.Context) error {
 
 	created, err := mongodb.CreateRoom(room)
 	if err != nil {
+		logger.AuditLog("room_create_failed", username, zap.String("room_name", req.Name), zap.String("ip", c.RealIP()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 생성에 실패했습니다"})
 	}
 
+	logger.AuditLog("room_created", username, zap.String("room_id", created.ID.Hex()), zap.String("room_name", created.Name), zap.String("ip", c.RealIP()))
 	return c.JSON(http.StatusCreated, created)
 }
 
@@ -111,11 +115,13 @@ func DeleteRoomHandler(c echo.Context) error {
 
 	err := mongodb.DeleteRoom(id, username)
 	if err != nil {
+		logger.AuditLog("room_delete_failed", username, zap.String("room_id", id), zap.String("ip", c.RealIP()))
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "채팅방 삭제 권한이 없습니다"})
 	}
 
 	RoomMgr.RemoveHub(id)
 
+	logger.AuditLog("room_deleted", username, zap.String("room_id", id), zap.String("ip", c.RealIP()))
 	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방이 삭제되었습니다"})
 }
 
@@ -136,6 +142,7 @@ func JoinRoomHandler(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "잘못된 요청입니다"})
 		}
 		if !mongodb.CheckRoomPassword(room, req.Password) {
+			logger.AuditLog("room_join_failed", username, zap.String("room_id", id), zap.String("reason", "wrong_password"), zap.String("ip", c.RealIP()))
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "비밀번호가 올바르지 않습니다"})
 		}
 	}
@@ -145,6 +152,7 @@ func JoinRoomHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "채팅방 참여에 실패했습니다"})
 	}
 
+	logger.AuditLog("room_joined", username, zap.String("room_id", id), zap.String("ip", c.RealIP()))
 	return c.JSON(http.StatusOK, map[string]string{"message": "채팅방에 참여했습니다"})
 }
 

@@ -29,4 +29,10 @@ var (
 		Name: "woongkie_messages_dropped_total",
 		Help: "Total number of chat messages dropped because insertQueue was full.",
 	})
+
+	// RedisMessagesDropped counts Redis Pub/Sub messages dropped due to a slow consumer.
+	RedisMessagesDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "woongkie_redis_messages_dropped_total",
+		Help: "Total number of Redis Pub/Sub messages dropped because the consumer was too slow.",
+	})
 )

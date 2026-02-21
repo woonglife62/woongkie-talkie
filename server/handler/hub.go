@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/woonglife62/woongkie-talkie/pkg/config"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"github.com/woonglife62/woongkie-talkie/pkg/metrics"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 	redisclient "github.com/woonglife62/woongkie-talkie/pkg/redis"
 )
-
-const hubIdleTimeout = 5 * time.Minute
 
 // Hub manages WebSocket connections for a single room
 type Hub struct {
@@ -66,7 +65,11 @@ func (h *Hub) Run() {
 			select {
 			case msgCh <- data:
 			default:
-				// slow consumer: drop message
+				// slow consumer: drop message and record metrics
+				logger.Logger.Warnw("Redis message dropped: slow consumer",
+					"room_id", h.RoomID,
+				)
+				metrics.RedisMessagesDropped.Inc()
 			}
 		}); err != nil {
 			logger.Logger.Warnw("Redis subscribe failed, using local fallback",
@@ -77,7 +80,7 @@ func (h *Hub) Run() {
 		}
 	}
 
-	idleTimer := time.NewTimer(hubIdleTimeout)
+	idleTimer := time.NewTimer(config.HubIdleTimeout)
 	defer idleTimer.Stop()
 
 	for {
@@ -103,7 +106,7 @@ func (h *Hub) Run() {
 				return
 			}
 			// Still has clients; reset the timer.
-			idleTimer.Reset(hubIdleTimeout)
+			idleTimer.Reset(config.HubIdleTimeout)
 
 		case client := <-h.Register:
 			// Reset idle timer on activity.
@@ -113,7 +116,7 @@ func (h *Hub) Run() {
 				default:
 				}
 			}
-			idleTimer.Reset(hubIdleTimeout)
+			idleTimer.Reset(config.HubIdleTimeout)
 
 			h.mu.Lock()
 			h.Clients[client] = true

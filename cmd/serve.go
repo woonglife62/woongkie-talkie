@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/cobra"
@@ -80,8 +79,8 @@ var serveCmd = &cobra.Command{
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 
-		// Graceful shutdown with 30s timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Graceful shutdown with configurable timeout (SHUTDOWN_TIMEOUT env var, default 30s)
+		ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 		defer cancel()
 
 		// Close all WebSocket connections
