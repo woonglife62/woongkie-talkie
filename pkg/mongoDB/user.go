@@ -14,13 +14,15 @@ import (
 )
 
 type User struct {
-	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Username     string             `json:"username" bson:"username"`
-	PasswordHash string             `json:"-" bson:"password_hash"`
-	DisplayName  string             `json:"display_name" bson:"display_name"`
+	ID            primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Username      string             `json:"username" bson:"username"`
+	PasswordHash  string             `json:"-" bson:"password_hash"`
+	DisplayName   string             `json:"display_name" bson:"display_name"`
 	AvatarURL     string             `json:"avatar_url" bson:"avatar_url"`
 	StatusMessage string             `json:"status_message" bson:"status_message"`
-	CreatedAt    time.Time          `json:"created_at" bson:"created_at"`
+	Role          string             `json:"role" bson:"role"`
+	PublicKey     string             `json:"public_key,omitempty" bson:"public_key,omitempty"`
+	CreatedAt     time.Time          `json:"created_at" bson:"created_at"`
 }
 
 var userCollection *mongo.Collection
@@ -56,6 +58,7 @@ func CreateUser(username, password, displayName string) (*User, error) {
 		Username:     username,
 		PasswordHash: string(hash),
 		DisplayName:  displayName,
+		Role:         "user",
 		CreatedAt:    time.Now(),
 	}
 
@@ -85,6 +88,28 @@ func CheckPassword(user *User, password string) bool {
 	return err == nil
 }
 
+// UpdateUserPublicKey stores the user's public key (JWK JSON string).
+func UpdateUserPublicKey(username, publicKey string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "public_key", Value: publicKey},
+	}}}
+	filter := bson.D{{Key: "username", Value: username}}
+	_, err := userCollection.UpdateOne(ctx, filter, update)
+	return err
+}
+
+// GetUserPublicKey returns the public key for a user.
+func GetUserPublicKey(username string) (string, error) {
+	user, err := FindUserByUsername(username)
+	if err != nil {
+		return "", err
+	}
+	return user.PublicKey, nil
+}
+
 // UpdateUserProfile updates display_name, status_message, and avatar_url for the given username.
 func UpdateUserProfile(username, displayName, statusMessage, avatarURL string) (*User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -104,4 +129,65 @@ func UpdateUserProfile(username, displayName, statusMessage, avatarURL string) (
 		return nil, err
 	}
 	return &user, nil
+}
+
+// FindAllUsers returns paginated user list and total count.
+func FindAllUsers(page, limit int64) ([]User, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	total, err := userCollection.CountDocuments(ctx, bson.D{})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	skip := (page - 1) * limit
+	opts := options.Find().SetSkip(skip).SetLimit(limit).SetSort(bson.D{{Key: "created_at", Value: -1}})
+	cur, err := userCollection.Find(ctx, bson.D{}, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(ctx)
+
+	var users []User
+	for cur.Next(ctx) {
+		var u User
+		if err := cur.Decode(&u); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []User{}
+	}
+	return users, total, nil
+}
+
+// SetUserRole updates the role for a user.
+func SetUserRole(username, role string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.D{{Key: "username", Value: username}}
+	update := bson.D{{Key: "$set", Value: bson.D{{Key: "role", Value: role}}}}
+	_, err := userCollection.UpdateOne(ctx, filter, update)
+	return err
+}
+
+// BlockUser sets role to "blocked" for a user.
+func BlockUser(username string) error {
+	return SetUserRole(username, "blocked")
+}
+
+// UnblockUser resets role back to "user".
+func UnblockUser(username string) error {
+	return SetUserRole(username, "user")
+}
+
+// CountUsers returns total user count.
+func CountUsers() (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return userCollection.CountDocuments(ctx, bson.D{})
 }

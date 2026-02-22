@@ -78,4 +78,28 @@ func Router(e *echo.Echo) {
 	// 유저 프로필 API
 	e.GET("/users/:username/profile", handler.GetProfileHandler)
 	e.PUT("/users/me/profile", handler.UpdateProfileHandler)
+
+	// E2E 암호화 키 관리
+	e.PUT("/crypto/keys", handler.UploadPublicKeyHandler)
+	e.GET("/crypto/keys/:username", handler.GetPublicKeyHandler)
+	e.GET("/rooms/:id/keys", handler.GetRoomKeysHandler)
+
+	// 관리자 API
+	admin := e.Group("/admin", middleware.AdminRequired())
+	admin.GET("", handler.AdminDashboardPage)
+	admin.GET("/stats", handler.AdminStatsHandler)
+	admin.GET("/users", handler.AdminUsersHandler)
+	admin.PUT("/users/:username/block", handler.AdminBlockUserHandler)
+	admin.GET("/rooms", handler.AdminRoomsHandler)
+	admin.DELETE("/rooms/:id", handler.AdminDeleteRoomHandler)
+	admin.POST("/rooms/:id/announce", handler.AdminAnnounceHandler)
+
+	// SPA fallback: serve frontend/dist/ if it exists
+	if _, err := os.Stat("frontend/dist"); err == nil {
+		e.Static("/assets", "frontend/dist/assets")
+		e.File("/", "frontend/dist/index.html")
+		e.GET("/*", func(c echo.Context) error {
+			return c.File("frontend/dist/index.html")
+		})
+	}
 }

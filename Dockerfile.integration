@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=golang:1.20.2
+ARG BASE_IMAGE=golang:1.25-alpine
 FROM ${BASE_IMAGE} AS builder
 
 WORKDIR /go/src/woongkie-talkie

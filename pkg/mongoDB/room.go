@@ -259,3 +259,56 @@ func LeaveRoom(roomID string, username string) error {
 	)
 	return err
 }
+
+// FindAllRooms returns all rooms with pagination.
+func FindAllRooms(page, limit int64) ([]Room, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	total, err := roomCollection.CountDocuments(ctx, bson.D{})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	skip := (page - 1) * limit
+	opts := options.Find().SetSkip(skip).SetLimit(limit).SetSort(bson.D{{Key: "created_at", Value: -1}})
+	cur, err := roomCollection.Find(ctx, bson.D{}, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(ctx)
+
+	var rooms []Room
+	for cur.Next(ctx) {
+		var r Room
+		if err := cur.Decode(&r); err != nil {
+			return nil, 0, err
+		}
+		rooms = append(rooms, r)
+	}
+	if rooms == nil {
+		rooms = []Room{}
+	}
+	return rooms, total, nil
+}
+
+// CountRooms returns total room count.
+func CountRooms() (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return roomCollection.CountDocuments(ctx, bson.D{})
+}
+
+// AdminDeleteRoom force-deletes a room by ID.
+func AdminDeleteRoom(roomID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	objID, err := primitive.ObjectIDFromHex(roomID)
+	if err != nil {
+		return err
+	}
+	_, err = roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
+	return err
+}

@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woongkie-Talkie - 관리자 대시보드</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+    <link rel="icon" type="image/png" sizes="32x32" href="/view/favicon/favicon-32x32.png">
+    <style>
+        :root {
+            --bg-body: #f5f5f5;
+            --bg-card: #ffffff;
+            --color-text: #333;
+            --color-border: #eee;
+            --color-input-bg: #fff;
+            --color-input-text: #333;
+            --color-input-border: #ced4da;
+            --color-label: #333;
+            --color-muted: #6c757d;
+            --color-table-header: #f8f9fa;
+            --color-table-border: #dee2e6;
+        }
+        [data-theme="dark"] {
+            --bg-body: #1a1b1e;
+            --bg-card: #2c2f33;
+            --color-text: #dcddde;
+            --color-border: #4f545c;
+            --color-input-bg: #36393f;
+            --color-input-text: #dcddde;
+            --color-input-border: #4f545c;
+            --color-label: #b9bbbe;
+            --color-muted: #72767d;
+            --color-table-header: #36393f;
+            --color-table-border: #4f545c;
+        }
+        body {
+            background-color: var(--bg-body);
+            color: var(--color-text);
+            min-height: 100vh;
+        }
+        .navbar {
+            background-color: var(--bg-card) !important;
+            border-bottom: 1px solid var(--color-border);
+        }
+        .navbar-brand { color: #4a90d9 !important; font-weight: bold; }
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+        }
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+        }
+        .stat-card .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #4a90d9;
+        }
+        .stat-card .stat-label {
+            color: var(--color-muted);
+            font-size: 0.9rem;
+        }
+        .table {
+            color: var(--color-text);
+        }
+        .table thead th {
+            background-color: var(--color-table-header);
+            border-color: var(--color-table-border);
+            color: var(--color-text);
+        }
+        .table td, .table th {
+            border-color: var(--color-table-border);
+        }
+        .form-control {
+            background-color: var(--color-input-bg) !important;
+            color: var(--color-input-text) !important;
+            border-color: var(--color-input-border) !important;
+        }
+        .form-control::placeholder { color: var(--color-muted) !important; }
+        #theme-toggle {
+            background: none;
+            border: 1px solid var(--color-border);
+            color: var(--color-text);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--color-text);
+        }
+        .badge-admin { background-color: #dc3545; }
+        .badge-blocked { background-color: #6c757d; }
+        .badge-user { background-color: #28a745; }
+        .alert-area {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            z-index: 9999;
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <span class="navbar-brand">Woongkie-Talkie 관리자</span>
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <span id="admin-username" class="text-muted small"></span>
+                <button id="theme-toggle" title="테마 전환" aria-label="테마 전환">&#9790;</button>
+                <a href="/client" class="btn btn-sm btn-outline-secondary">채팅으로</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="alert-area" id="alert-area"></div>
+
+    <div class="container-fluid py-4">
+        <!-- Stats Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-online">-</div>
+                    <div class="stat-label">온라인 사용자</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-rooms">-</div>
+                    <div class="stat-label">채팅방 수</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-messages">-</div>
+                    <div class="stat-label">오늘 메시지</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="stat-goroutines">-</div>
+                    <div class="stat-label">고루틴 수</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Users Table -->
+            <div class="col-12 col-lg-6">
+                <div class="card p-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="section-title mb-0">사용자 관리</div>
+                        <small class="text-muted" id="users-total"></small>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>사용자명</th>
+                                    <th>표시명</th>
+                                    <th>역할</th>
+                                    <th>가입일</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-tbody">
+                                <tr><td colspan="5" class="text-center text-muted py-3">불러오는 중...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-center mt-2" id="users-pagination"></div>
+                </div>
+            </div>
+
+            <!-- Rooms Table -->
+            <div class="col-12 col-lg-6">
+                <div class="card p-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="section-title mb-0">채팅방 관리</div>
+                        <small class="text-muted" id="rooms-total"></small>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>이름</th>
+                                    <th>생성자</th>
+                                    <th>공개</th>
+                                    <th>생성일</th>
+                                    <th>작업</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rooms-tbody">
+                                <tr><td colspan="5" class="text-center text-muted py-3">불러오는 중...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-center mt-2" id="rooms-pagination"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Announce Modal -->
+    <div class="modal fade" id="announceModal" tabindex="-1" aria-labelledby="announceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content" style="background:var(--bg-card);color:var(--color-text);">
+                <div class="modal-header" style="border-color:var(--color-border)">
+                    <h5 class="modal-title" id="announceModalLabel">공지 전송</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="announce-room-id">
+                    <label for="announce-msg" class="form-label">공지 내용</label>
+                    <textarea class="form-control" id="announce-msg" rows="3" placeholder="공지사항 내용을 입력하세요"></textarea>
+                </div>
+                <div class="modal-footer" style="border-color:var(--color-border)">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" id="announce-submit">전송</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+    <script>
+        // Theme
+        (function () {
+            function applyTheme(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                var btn = document.getElementById('theme-toggle');
+                if (btn) btn.innerHTML = theme === 'dark' ? '&#9728;' : '&#9790;';
+                localStorage.setItem('theme', theme);
+            }
+            var saved = localStorage.getItem('theme');
+            if (saved) { applyTheme(saved); }
+            else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) { applyTheme('dark'); }
+            else { applyTheme('light'); }
+            document.getElementById('theme-toggle').addEventListener('click', function () {
+                applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+            });
+        })();
+
+        var usersPage = 1;
+        var roomsPage = 1;
+        var announceModal = new bootstrap.Modal(document.getElementById('announceModal'));
+
+        function showAlert(msg, type) {
+            var div = document.createElement('div');
+            div.className = 'alert alert-' + type + ' alert-dismissible fade show';
+            div.innerHTML = msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            document.getElementById('alert-area').appendChild(div);
+            setTimeout(function () { div.remove(); }, 4000);
+        }
+
+        function apiCall(method, url, body, cb) {
+            var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+            if (body) opts.body = JSON.stringify(body);
+            fetch(url, opts).then(function (r) { return r.json().then(function (d) { cb(r.ok, d); }); })
+                .catch(function () { cb(false, { error: '네트워크 오류' }); });
+        }
+
+        function loadStats() {
+            apiCall('GET', '/admin/stats', null, function (ok, data) {
+                if (!ok) return;
+                document.getElementById('stat-online').textContent = data.online_users;
+                document.getElementById('stat-rooms').textContent = data.active_rooms;
+                document.getElementById('stat-messages').textContent = data.today_messages;
+                document.getElementById('stat-goroutines').textContent = data.goroutines;
+            });
+        }
+
+        function roleBadge(role) {
+            var cls = role === 'admin' ? 'badge-admin' : role === 'blocked' ? 'badge-blocked' : 'badge-user';
+            return '<span class="badge ' + cls + '">' + role + '</span>';
+        }
+
+        function formatDate(s) {
+            if (!s) return '-';
+            return new Date(s).toLocaleDateString('ko-KR');
+        }
+
+        function loadUsers(page) {
+            usersPage = page;
+            apiCall('GET', '/admin/users?page=' + page + '&limit=10', null, function (ok, data) {
+                var tbody = document.getElementById('users-tbody');
+                if (!ok) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">불러오기 실패</td></tr>'; return; }
+                document.getElementById('users-total').textContent = '총 ' + data.total + '명';
+                if (!data.users || data.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">사용자 없음</td></tr>'; return;
+                }
+                tbody.innerHTML = data.users.map(function (u) {
+                    var isBlocked = u.role === 'blocked';
+                    var btnLabel = isBlocked ? '차단해제' : '차단';
+                    var btnCls = isBlocked ? 'btn-success' : 'btn-danger';
+                    return '<tr>' +
+                        '<td><code>' + escHtml(u.username) + '</code></td>' +
+                        '<td>' + escHtml(u.display_name || '-') + '</td>' +
+                        '<td>' + roleBadge(u.role) + '</td>' +
+                        '<td>' + formatDate(u.created_at) + '</td>' +
+                        '<td><button class="btn btn-xs ' + btnCls + ' btn-sm" onclick="toggleBlock(\'' + escHtml(u.username) + '\',' + isBlocked + ')">' + btnLabel + '</button></td>' +
+                        '</tr>';
+                }).join('');
+                renderPagination('users-pagination', data.total, 10, page, loadUsers);
+            });
+        }
+
+        function toggleBlock(username, isBlocked) {
+            apiCall('PUT', '/admin/users/' + encodeURIComponent(username) + '/block', { blocked: !isBlocked }, function (ok, data) {
+                if (ok) { showAlert(data.message, 'success'); loadUsers(usersPage); }
+                else { showAlert(data.error || '오류 발생', 'danger'); }
+            });
+        }
+
+        function loadRooms(page) {
+            roomsPage = page;
+            apiCall('GET', '/admin/rooms?page=' + page + '&limit=10', null, function (ok, data) {
+                var tbody = document.getElementById('rooms-tbody');
+                if (!ok) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">불러오기 실패</td></tr>'; return; }
+                document.getElementById('rooms-total').textContent = '총 ' + data.total + '개';
+                if (!data.rooms || data.rooms.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">채팅방 없음</td></tr>'; return;
+                }
+                tbody.innerHTML = data.rooms.map(function (r) {
+                    return '<tr>' +
+                        '<td>' + escHtml(r.name) + '</td>' +
+                        '<td>' + escHtml(r.created_by) + '</td>' +
+                        '<td>' + (r.is_public ? '<span class="badge bg-primary">공개</span>' : '<span class="badge bg-secondary">비공개</span>') + '</td>' +
+                        '<td>' + formatDate(r.created_at) + '</td>' +
+                        '<td class="d-flex gap-1">' +
+                        '<button class="btn btn-sm btn-warning" onclick="openAnnounce(\'' + escHtml(r.id) + '\')">공지</button>' +
+                        '<button class="btn btn-sm btn-danger" onclick="deleteRoom(\'' + escHtml(r.id) + '\',\'' + escHtml(r.name) + '\')">삭제</button>' +
+                        '</td></tr>';
+                }).join('');
+                renderPagination('rooms-pagination', data.total, 10, page, loadRooms);
+            });
+        }
+
+        function deleteRoom(roomID, roomName) {
+            if (!confirm('채팅방 "' + roomName + '"을 삭제하시겠습니까?')) return;
+            apiCall('DELETE', '/admin/rooms/' + encodeURIComponent(roomID), null, function (ok, data) {
+                if (ok) { showAlert(data.message, 'success'); loadRooms(roomsPage); loadStats(); }
+                else { showAlert(data.error || '오류 발생', 'danger'); }
+            });
+        }
+
+        function openAnnounce(roomID) {
+            document.getElementById('announce-room-id').value = roomID;
+            document.getElementById('announce-msg').value = '';
+            announceModal.show();
+        }
+
+        document.getElementById('announce-submit').addEventListener('click', function () {
+            var roomID = document.getElementById('announce-room-id').value;
+            var msg = document.getElementById('announce-msg').value.trim();
+            if (!msg) { showAlert('공지 내용을 입력하세요', 'warning'); return; }
+            apiCall('POST', '/admin/rooms/' + encodeURIComponent(roomID) + '/announce', { message: msg }, function (ok, data) {
+                announceModal.hide();
+                if (ok) { showAlert(data.message, 'success'); }
+                else { showAlert(data.error || '오류 발생', 'danger'); }
+            });
+        });
+
+        function renderPagination(containerId, total, limit, current, cb) {
+            var totalPages = Math.ceil(total / limit);
+            var el = document.getElementById(containerId);
+            if (totalPages <= 1) { el.innerHTML = ''; return; }
+            var html = '<nav><ul class="pagination pagination-sm mb-0">';
+            for (var i = 1; i <= totalPages; i++) {
+                html += '<li class="page-item' + (i === current ? ' active' : '') + '">' +
+                    '<a class="page-link" href="#" data-page="' + i + '">' + i + '</a></li>';
+            }
+            html += '</ul></nav>';
+            el.innerHTML = html;
+            el.querySelectorAll('.page-link').forEach(function (a) {
+                a.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    cb(parseInt(this.dataset.page));
+                });
+            });
+        }
+
+        function escHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Check auth and load
+        fetch('/auth/me').then(function (r) {
+            if (!r.ok) { window.location.href = '/login'; return; }
+            return r.json();
+        }).then(function (data) {
+            if (!data) return;
+            document.getElementById('admin-username').textContent = data.username || '';
+        });
+
+        loadStats();
+        loadUsers(1);
+        loadRooms(1);
+
+        // Auto-refresh stats every 30 seconds
+        setInterval(loadStats, 30000);
+    </script>
+</body>
+</html>

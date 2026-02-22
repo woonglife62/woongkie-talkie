@@ -2112,6 +2112,404 @@
                 }
             });
         })();
+
+        // ── E2E 암호화 (WebCrypto API / RSA-OAEP + AES-GCM) ────────────
+        (function () {
+            // WebCrypto 미지원 브라우저 graceful degrade
+            if (!window.crypto || !window.crypto.subtle) {
+                console.warn('WebCrypto API를 지원하지 않는 브라우저입니다. E2E 암호화를 사용할 수 없습니다.');
+                return;
+            }
+
+            var DB_NAME = 'woongkie-crypto';
+            var STORE_NAME = 'keys';
+            var encryptionEnabled = false;
+            var myPrivateKey = null;
+            var roomMemberKeys = {}; // { username: CryptoKey (public) }
+
+            // ── IndexedDB 헬퍼 ──────────────────────────────────────────
+            function openCryptoDB() {
+                return new Promise(function (resolve, reject) {
+                    var req = indexedDB.open(DB_NAME, 1);
+                    req.onupgradeneeded = function (e) {
+                        e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    };
+                    req.onsuccess = function (e) { resolve(e.target.result); };
+                    req.onerror = function (e) { reject(e.target.error); };
+                });
+            }
+
+            function savePrivateKey(username, privateKey) {
+                return openCryptoDB().then(function (db) {
+                    return new Promise(function (resolve, reject) {
+                        var tx = db.transaction(STORE_NAME, 'readwrite');
+                        var store = tx.objectStore(STORE_NAME);
+                        var req = store.put({ id: 'privkey_' + username, key: privateKey });
+                        req.onsuccess = function () { resolve(); };
+                        req.onerror = function (e) { reject(e.target.error); };
+                    });
+                });
+            }
+
+            function loadPrivateKey(username) {
+                return openCryptoDB().then(function (db) {
+                    return new Promise(function (resolve, reject) {
+                        var tx = db.transaction(STORE_NAME, 'readonly');
+                        var store = tx.objectStore(STORE_NAME);
+                        var req = store.get('privkey_' + username);
+                        req.onsuccess = function (e) { resolve(e.target.result ? e.target.result.key : null); };
+                        req.onerror = function (e) { reject(e.target.error); };
+                    });
+                });
+            }
+
+            // ── 키 쌍 생성 ──────────────────────────────────────────────
+            function generateKeyPair() {
+                return crypto.subtle.generateKey(
+                    {
+                        name: 'RSA-OAEP',
+                        modulusLength: 2048,
+                        publicExponent: new Uint8Array([1, 0, 1]),
+                        hash: 'SHA-256'
+                    },
+                    true,
+                    ['encrypt', 'decrypt']
+                );
+            }
+
+            // ── Base64 유틸 ─────────────────────────────────────────────
+            function arrayBufferToBase64(buf) {
+                var bytes = new Uint8Array(buf);
+                var binary = '';
+                for (var i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return btoa(binary);
+            }
+
+            function base64ToArrayBuffer(b64) {
+                var binary = atob(b64);
+                var bytes = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return bytes.buffer;
+            }
+
+            // ── 메시지 암호화 ───────────────────────────────────────────
+            // memberPublicKeys: { username: CryptoKey }
+            async function encryptMessage(plaintext, memberPublicKeys) {
+                // 1. AES-GCM 256-bit 세션 키 생성
+                var aesKey = await crypto.subtle.generateKey(
+                    { name: 'AES-GCM', length: 256 },
+                    true,
+                    ['encrypt', 'decrypt']
+                );
+
+                // 2. IV 생성 (12 bytes)
+                var iv = crypto.getRandomValues(new Uint8Array(12));
+
+                // 3. 메시지 암호화
+                var enc = new TextEncoder();
+                var ciphertext = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    aesKey,
+                    enc.encode(plaintext)
+                );
+
+                // 4. AES 키를 각 멤버의 RSA 공개키로 암호화
+                var rawAES = await crypto.subtle.exportKey('raw', aesKey);
+                var encryptedKeys = {};
+                var members = Object.keys(memberPublicKeys);
+                for (var i = 0; i < members.length; i++) {
+                    var memberName = members[i];
+                    var pubKey = memberPublicKeys[memberName];
+                    if (!pubKey) continue;
+                    try {
+                        var encAES = await crypto.subtle.encrypt(
+                            { name: 'RSA-OAEP' },
+                            pubKey,
+                            rawAES
+                        );
+                        encryptedKeys[memberName] = arrayBufferToBase64(encAES);
+                    } catch (e) {
+                        console.warn('멤버 ' + memberName + '의 키 암호화 실패:', e);
+                    }
+                }
+
+                // 5. ciphertext = base64(iv) + ':' + base64(encrypted)
+                var payload = arrayBufferToBase64(iv) + ':' + arrayBufferToBase64(ciphertext);
+                return { ciphertext: payload, encryptedKeys: encryptedKeys };
+            }
+
+            // ── 메시지 복호화 ───────────────────────────────────────────
+            async function decryptMessage(ciphertext, encryptedAESKeyB64, privateKey) {
+                // AES 키 복호화
+                var encAESBuf = base64ToArrayBuffer(encryptedAESKeyB64);
+                var rawAES = await crypto.subtle.decrypt(
+                    { name: 'RSA-OAEP' },
+                    privateKey,
+                    encAESBuf
+                );
+                var aesKey = await crypto.subtle.importKey(
+                    'raw', rawAES, { name: 'AES-GCM' }, false, ['decrypt']
+                );
+
+                // IV + ciphertext 분리
+                var parts = ciphertext.split(':');
+                if (parts.length < 2) throw new Error('잘못된 암호문 형식');
+                var iv = new Uint8Array(base64ToArrayBuffer(parts[0]));
+                var encrypted = base64ToArrayBuffer(parts[1]);
+
+                // 메시지 복호화
+                var decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    aesKey,
+                    encrypted
+                );
+                return new TextDecoder().decode(decrypted);
+            }
+
+            // ── 공개키 JWK 임포트 ───────────────────────────────────────
+            function importPublicKeyJWK(jwkStr) {
+                try {
+                    var jwk = typeof jwkStr === 'string' ? JSON.parse(jwkStr) : jwkStr;
+                    return crypto.subtle.importKey(
+                        'jwk', jwk,
+                        { name: 'RSA-OAEP', hash: 'SHA-256' },
+                        false,
+                        ['encrypt']
+                    );
+                } catch (e) {
+                    return Promise.reject(e);
+                }
+            }
+
+            // ── 방 멤버 공개키 로드 ─────────────────────────────────────
+            function loadRoomMemberKeys(roomId) {
+                return authFetch('/rooms/' + roomId + '/keys')
+                    .then(function (resp) {
+                        if (!resp) return;
+                        return resp.json();
+                    })
+                    .then(function (data) {
+                        if (!data || !data.keys) return;
+                        roomMemberKeys = {};
+                        var promises = [];
+                        Object.keys(data.keys).forEach(function (uname) {
+                            var jwkStr = data.keys[uname];
+                            if (!jwkStr) return;
+                            promises.push(
+                                importPublicKeyJWK(jwkStr)
+                                    .then(function (key) { roomMemberKeys[uname] = key; })
+                                    .catch(function (e) { console.warn('공개키 임포트 실패 ' + uname, e); })
+                            );
+                        });
+                        return Promise.all(promises);
+                    })
+                    .catch(function (e) {
+                        console.warn('방 멤버 공개키 로드 실패:', e);
+                    });
+            }
+
+            // ── 초기화: 로그인 후 키 쌍 설정 ───────────────────────────
+            function initCrypto(username) {
+                loadPrivateKey(username).then(function (storedKey) {
+                    if (storedKey) {
+                        // 이미 키가 있음
+                        myPrivateKey = storedKey;
+                        console.log('E2E 암호화: 기존 키 로드 완료');
+                    } else {
+                        // 새 키 쌍 생성
+                        generateKeyPair().then(function (keyPair) {
+                            myPrivateKey = keyPair.privateKey;
+                            return savePrivateKey(username, keyPair.privateKey).then(function () {
+                                // 공개키를 JWK로 내보내 서버에 업로드
+                                return crypto.subtle.exportKey('jwk', keyPair.publicKey);
+                            }).then(function (jwk) {
+                                return authFetch('/crypto/keys', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ public_key: JSON.stringify(jwk) })
+                                });
+                            });
+                        }).then(function () {
+                            console.log('E2E 암호화: 새 키 쌍 생성 및 공개키 업로드 완료');
+                        }).catch(function (e) {
+                            console.warn('E2E 암호화 초기화 실패:', e);
+                        });
+                    }
+                }).catch(function (e) {
+                    console.warn('E2E 암호화 키 로드 실패:', e);
+                });
+            }
+
+            // ── UI: 암호화 토글 버튼 추가 ───────────────────────────────
+            var $encryptBtn = $('<button id="encrypt-toggle" type="button" title="E2E 암호화 켜기/끄기" aria-label="E2E 암호화 토글" style="background:none;border:1px solid var(--color-border,#ccc);border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;">&#128275;</button>');
+            $('#emoji-btn').before($encryptBtn);
+
+            var $encryptBadge = $('<span id="encrypt-badge" style="display:none;font-size:11px;color:#28a745;margin-left:4px;font-weight:bold;">E2E 암호화</span>');
+            $('#encrypt-toggle').after($encryptBadge);
+
+            function updateEncryptUI() {
+                if (encryptionEnabled) {
+                    $('#encrypt-toggle').html('&#128274;').css('border-color', '#28a745').css('color', '#28a745');
+                    $('#encrypt-badge').show();
+                } else {
+                    $('#encrypt-toggle').html('&#128275;').css('border-color', '').css('color', '');
+                    $('#encrypt-badge').hide();
+                }
+            }
+
+            $('#encrypt-toggle').on('click', function () {
+                if (!myPrivateKey) {
+                    showToast('E2E 암호화 키가 아직 준비되지 않았습니다.', 'warning');
+                    return;
+                }
+                encryptionEnabled = !encryptionEnabled;
+                updateEncryptUI();
+                if (encryptionEnabled && currentRoomID) {
+                    loadRoomMemberKeys(currentRoomID).then(function () {
+                        showToast('E2E 암호화가 활성화되었습니다.', 'info');
+                    });
+                } else if (!encryptionEnabled) {
+                    showToast('E2E 암호화가 비활성화되었습니다.', 'info');
+                }
+            });
+
+            // ── 방 전환 시 멤버 키 새로고침 ────────────────────────────
+            var _origSwitchRoom = switchRoom;
+            switchRoom = function (roomId, name, desc) {
+                _origSwitchRoom(roomId, name, desc);
+                if (encryptionEnabled) {
+                    loadRoomMemberKeys(roomId);
+                }
+            };
+
+            // ── 암호화된 메시지 수신 처리 ───────────────────────────────
+            var _origAppendMessageCrypto = appendMessage;
+            appendMessage = function (recData) {
+                if (recData.encrypted && recData.encrypted_keys && myPrivateKey) {
+                    var encKeys = {};
+                    try {
+                        encKeys = typeof recData.encrypted_keys === 'string'
+                            ? JSON.parse(recData.encrypted_keys)
+                            : recData.encrypted_keys;
+                    } catch (e) {}
+
+                    var myEncKey = encKeys[currentUser];
+                    if (myEncKey) {
+                        decryptMessage(recData.message, myEncKey, myPrivateKey).then(function (plaintext) {
+                            var decryptedData = Object.assign({}, recData, {
+                                message: '\uD83D\uDD12 ' + plaintext,
+                                encrypted: false
+                            });
+                            _origAppendMessageCrypto(decryptedData);
+                        }).catch(function (e) {
+                            console.warn('메시지 복호화 실패:', e);
+                            var failData = Object.assign({}, recData, {
+                                message: '\uD83D\uDD12 암호화된 메시지',
+                                encrypted: false
+                            });
+                            _origAppendMessageCrypto(failData);
+                        });
+                        return;
+                    }
+                }
+                _origAppendMessageCrypto(recData);
+            };
+
+            // ── 전송 버튼 래핑: 암호화 전송 ────────────────────────────
+            var _origSubmitCrypto = $('#submit-btn').off('click').clone(true);
+            $('#submit-btn').on('click', function () {
+                var msg = $('#chat-message').val();
+                if (!msg || msg.trim() === '') return false;
+
+                if (!encryptionEnabled || replyToMsgID) {
+                    // 암호화 꺼짐 또는 답장 모드: 기존 로직
+                    if (replyToMsgID) {
+                        if (!ws || ws.readyState !== WebSocket.OPEN) {
+                            showToast('연결이 끊어져 있습니다. 잠시 후 다시 시도하세요.', 'error');
+                            return false;
+                        }
+                        $.ajax({
+                            url: '/rooms/' + currentRoomID + '/messages/' + replyToMsgID + '/reply',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ message: msg }),
+                            success: function () { clearReplyTo(); },
+                            error: function (xhr) {
+                                var resp = xhr.responseJSON;
+                                alert(resp ? resp.error : '답장 전송에 실패했습니다.');
+                            }
+                        });
+                    } else if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ event: 'MESSAGE', user: '', message: msg }));
+                    } else {
+                        var queueItem = { event: 'MESSAGE', user: '', message: msg };
+                        offlineQueue.push(queueItem);
+                        try { localStorage.setItem('offlineQueue', JSON.stringify(offlineQueue)); } catch(e) {}
+                        var $pending = $('<p class="p-me preserve-whitespace msg-pending"></p>');
+                        $pending.append('<span class="span-me"><span class="msg-text">' + escapeHtml(msg) + '</span><span class="msg-pending-label">(전송 대기중)</span></span>');
+                        $('#result').append($pending);
+                        var $r = $('#result');
+                        $r.scrollTop($r[0].scrollHeight);
+                        showToast('오프라인 상태입니다. 메시지가 연결 후 전송됩니다.', 'warning');
+                    }
+                    if (isTyping) {
+                        isTyping = false;
+                        clearTimeout(typingTimer);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ event: 'TYPING_STOP' }));
+                        }
+                    }
+                    $('#chat-message').val('');
+                    return;
+                }
+
+                // 암호화 전송
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    showToast('연결이 끊어져 있습니다. 잠시 후 다시 시도하세요.', 'error');
+                    return false;
+                }
+                if (Object.keys(roomMemberKeys).length === 0) {
+                    showToast('방 멤버 공개키를 불러오는 중입니다. 잠시 후 다시 시도하세요.', 'warning');
+                    loadRoomMemberKeys(currentRoomID);
+                    return false;
+                }
+
+                encryptMessage(msg, roomMemberKeys).then(function (result) {
+                    var sendData = {
+                        event: 'MESSAGE',
+                        user: '',
+                        message: result.ciphertext,
+                        encrypted: true,
+                        encrypted_keys: JSON.stringify(result.encryptedKeys)
+                    };
+                    ws.send(JSON.stringify(sendData));
+                    if (isTyping) {
+                        isTyping = false;
+                        clearTimeout(typingTimer);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ event: 'TYPING_STOP' }));
+                        }
+                    }
+                    $('#chat-message').val('');
+                }).catch(function (e) {
+                    console.error('메시지 암호화 실패:', e);
+                    showToast('메시지 암호화에 실패했습니다.', 'error');
+                });
+            });
+
+            // ── /auth/me 로드 완료 후 crypto 초기화 ────────────────────
+            // currentUser가 설정된 후 initCrypto 호출
+            var _checkUserInterval = setInterval(function () {
+                if (currentUser) {
+                    clearInterval(_checkUserInterval);
+                    initCrypto(currentUser);
+                }
+            }, 200);
+        })();
     </script>
 </body>
 

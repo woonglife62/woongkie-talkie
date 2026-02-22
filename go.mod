@@ -1,6 +1,6 @@
 module github.com/woonglife62/woongkie-talkie
 
-go 1.24.0
+go 1.25.2
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1

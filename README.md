@@ -1,18 +1,20 @@
 # woongkie-talkie
 
-실시간 다중 채팅방 웹 애플리케이션. WebSocket 기반 실시간 메시징, JWT 인증, Redis Pub/Sub을 통한 멀티 서버 브로드캐스트를 지원합니다.
+실시간 다중 채팅방 웹 애플리케이션. WebSocket 기반 실시간 메시징, JWT 인증, Redis Pub/Sub을 통한 멀티 서버 브로드캐스트, E2E 암호화, 관리자 대시보드를 지원합니다.
 
 ## 기술 스택
 
 | 분류 | 기술 |
 |------|------|
-| Language | Go 1.21 |
+| Language | Go 1.25 |
 | Framework | Echo v4 |
 | Database | MongoDB 7 |
 | Cache/PubSub | Redis 7 |
 | Auth | JWT (golang-jwt/v5) |
-| Realtime | WebSocket (gorilla/websocket) |
+| Realtime | WebSocket (gorilla/websocket, permessage-deflate) |
+| Frontend | React 19 + TypeScript + Vite (SPA) |
 | Logging | zap (structured logging) |
+| Metrics | Prometheus |
 | Container | Docker, Docker Compose |
 | Orchestration | Kubernetes |
 | Load Test | k6 |
@@ -27,17 +29,43 @@ woongkie-talkie/
 ├── pkg/                    # 공유 패키지
 │   ├── config/             # 환경 설정
 │   ├── logger/             # 구조화 로깅 (zap)
-│   ├── mongoDB/            # MongoDB 연결 및 스키마
+│   ├── metrics/            # Prometheus 메트릭
+│   ├── mongoDB/            # MongoDB 스키마 및 CRUD
+│   │   ├── chat.go         # 채팅 메시지
+│   │   ├── user.go         # 사용자 (Role, PublicKey 포함)
+│   │   ├── room.go         # 채팅방
+│   │   └── file.go         # 파일 메타데이터
 │   └── redis/              # Redis 클라이언트
+│       ├── client.go       # 연결 관리
+│       ├── pubsub.go       # Pub/Sub 브로커
+│       └── presence.go     # 온라인/타이핑 상태
 ├── server/                 # HTTP/WS 서버
 │   ├── handler/            # API 핸들러
-│   ├── middleware/          # JWT 인증, Rate Limiting
+│   │   ├── auth.go         # 인증 (register/login/logout)
+│   │   ├── room.go         # 채팅방 CRUD
+│   │   ├── message.go      # 메시지 편집/삭제/답장/검색
+│   │   ├── upload.go       # 파일 업로드/서빙
+│   │   ├── crypto.go       # E2E 암호화 키 관리
+│   │   ├── admin.go        # 관리자 대시보드 API
+│   │   ├── hub.go          # WebSocket 허브
+│   │   └── ws_client.go    # WebSocket 클라이언트
+│   ├── middleware/          # JWT 인증, Rate Limiting, Admin
 │   └── router/             # 라우트 정의
-├── view/                   # 프론트엔드 (HTML/CSS)
+├── frontend/               # React SPA (Vite + TypeScript)
+│   ├── src/
+│   │   ├── components/     # React 컴포넌트
+│   │   ├── hooks/          # 커스텀 훅 (useWebSocket, useAuth)
+│   │   ├── stores/         # Zustand 상태 관리
+│   │   └── api/            # API 클라이언트
+│   ├── package.json
+│   └── vite.config.ts
+├── view/                   # 레거시 프론트엔드 (HTML/CSS)
 ├── docs/                   # OpenAPI 스펙
 ├── k8s/                    # Kubernetes 매니페스트
-├── tests/load/             # k6 부하 테스트
-├── Dockerfile              # 멀티스테이지 빌드
+├── tests/
+│   ├── load/               # k6 부하 테스트
+│   └── integration/        # 통합/카오스 테스트
+├── Dockerfile              # 멀티스테이지 빌드 (Go 1.25)
 ├── docker-compose.yml      # MongoDB + Redis + App
 └── Taskfile.yml            # go-task 자동화
 ```
@@ -46,9 +74,10 @@ woongkie-talkie/
 
 ### 사전 요구사항
 
-- [Go 1.21+](https://go.dev/dl/)
+- [Go 1.25+](https://go.dev/dl/)
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose
 - [go-task](https://taskfile.dev/installation/) (선택, 권장)
+- [Node.js 20+](https://nodejs.org/) (프론트엔드 개발 시)
 
 ### 환경 설정
 
@@ -89,6 +118,15 @@ task mod
 task run
 ```
 
+### 프론트엔드 개발
+
+```bash
+cd frontend
+npm install
+npm run dev    # Vite dev server (포트 5173, API는 8080으로 프록시)
+npm run build  # frontend/dist/에 빌드
+```
+
 ## Task 명령어 목록
 
 | 명령어 | 설명 |
@@ -105,7 +143,7 @@ task run
 | `task docker:down` | Docker Compose 종료 |
 | `task docker:logs` | Docker Compose 로그 팔로우 |
 | `task docker:build` | Docker 이미지만 빌드 |
-| `task env` | `.env.example` → `.env` 복사 |
+| `task env` | `.env.example` -> `.env` 복사 |
 | `task mod` | `go mod tidy` + `go mod download` |
 
 ## API 엔드포인트
@@ -116,6 +154,8 @@ task run
 |--------|------|------|
 | POST | `/auth/register` | 회원가입 |
 | POST | `/auth/login` | 로그인 (JWT 발급) |
+| POST | `/auth/logout` | 로그아웃 |
+| POST | `/auth/refresh` | 토큰 갱신 |
 | GET | `/auth/me` | 현재 사용자 정보 |
 
 ### 채팅방
@@ -135,9 +175,37 @@ task run
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/rooms/:id/messages` | 메시지 목록 (무한스크롤) |
-| PUT | `/rooms/:id/messages/:msgId` | 메시지 편집 |
+| GET | `/rooms/:id/messages/search` | 메시지 검색 |
+| PUT | `/rooms/:id/messages/:msgId` | 메시지 편집 (5분 이내) |
 | DELETE | `/rooms/:id/messages/:msgId` | 메시지 삭제 |
 | POST | `/rooms/:id/messages/:msgId/reply` | 메시지 답장 |
+
+### 파일 업로드
+
+| Method | Path | 설명 |
+|--------|------|------|
+| POST | `/rooms/:id/upload` | 파일 업로드 (10MB, 이미지/PDF/텍스트) |
+| GET | `/files/:fileId` | 파일 다운로드/미리보기 |
+
+### E2E 암호화
+
+| Method | Path | 설명 |
+|--------|------|------|
+| PUT | `/crypto/keys` | 공개키 업로드 |
+| GET | `/crypto/keys/:username` | 사용자 공개키 조회 |
+| GET | `/rooms/:id/keys` | 방 멤버 공개키 목록 |
+
+### 관리자
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin` | 관리자 대시보드 |
+| GET | `/admin/stats` | 시스템 통계 |
+| GET | `/admin/users` | 사용자 관리 |
+| PUT | `/admin/users/:username/block` | 사용자 차단/해제 |
+| GET | `/admin/rooms` | 채팅방 관리 |
+| DELETE | `/admin/rooms/:id` | 채팅방 강제 삭제 |
+| POST | `/admin/rooms/:id/announce` | 시스템 공지 전송 |
 
 ### WebSocket
 
@@ -158,23 +226,32 @@ task run
 |--------|------|------|
 | GET | `/health` | 헬스체크 |
 | GET | `/ready` | 레디니스 체크 |
+| GET | `/metrics` | Prometheus 메트릭 (ENABLE_METRICS=true) |
 | GET | `/docs` | Swagger UI |
 | GET | `/docs/openapi.yaml` | OpenAPI 스펙 |
 
 ## 주요 기능
 
-- **JWT 인증** - 회원가입/로그인, 토큰 기반 인증
-- **다중 채팅방** - 채팅방 생성, 참가, 나가기
-- **실시간 메시징** - WebSocket 기반 실시간 채팅
+- **JWT 인증** - 회원가입/로그인, httpOnly 쿠키, 토큰 갱신
+- **다중 채팅방** - 채팅방 생성, 참가, 나가기, 공개/비공개 설정
+- **실시간 메시징** - WebSocket + permessage-deflate 압축
 - **Redis Pub/Sub** - 멀티 서버 환경에서 메시지 브로드캐스트
-- **메시지 편집/삭제** - 본인 메시지 수정 및 삭제
+- **메시지 편집/삭제** - 본인 메시지 수정 (5분 이내) 및 소프트 삭제
 - **메시지 답장** - 특정 메시지에 대한 답장
+- **메시지 검색** - MongoDB 전문 검색 (text index)
+- **파일 업로드** - 이미지/PDF/텍스트 업로드, MIME 검증, 드래그앤드롭
+- **E2E 암호화** - WebCrypto API (RSA-OAEP + AES-GCM) 선택적 메시지 암호화
+- **관리자 대시보드** - 사용자/채팅방 관리, 시스템 통계, 공지 전송
 - **타이핑 인디케이터** - 상대방 입력 중 표시
 - **프로필 관리** - 사용자 프로필 조회 및 수정
-- **Presence** - 사용자 온/오프라인 상태
+- **Presence** - Redis 기반 사용자 온/오프라인 상태
 - **무한 스크롤** - 메시지 히스토리 페이지네이션
-- **Rate Limiting** - API 요청 제한
-- **구조화 로깅** - zap 기반 JSON 로깅
+- **오프라인 큐** - 오프라인 시 메시지 로컬 저장, 재연결 시 자동 전송
+- **이모지 피커** - 카테고리별 이모지 선택
+- **Rate Limiting** - API 요청 제한 (인증, WS 연결, 방 생성)
+- **구조화 로깅** - zap 기반 JSON 로깅 + 감사 로그
+- **다크 모드** - 시스템/수동 테마 전환
+- **React SPA** - Vite + React 19 + TypeScript 프론트엔드
 
 ## 환경 변수
 
@@ -192,6 +269,8 @@ task run
 | `REDIS_DB` | Redis DB 번호 | `0` |
 | `TLS_CERT_FILE` | TLS 인증서 경로 (선택) | - |
 | `TLS_KEY_FILE` | TLS 키 경로 (선택) | - |
+| `ENABLE_METRICS` | Prometheus 메트릭 활성화 | `false` |
+| `ENABLE_PPROF` | pprof 프로파일링 활성화 | `false` |
 
 ## 배포
 
@@ -225,6 +304,12 @@ task test
 
 # 핸들러 테스트만
 task test:handler
+
+# 통합 테스트 (MongoDB 필요)
+go test -tags=integration ./tests/integration/
+
+# 통합 테스트 (MongoDB 불필요 - 검증/Rate Limiter만)
+go test -tags=integration -run="TestAuthValidation|TestRateLimiter|TestBroker" ./tests/integration/
 ```
 
 ### 부하 테스트 (k6)

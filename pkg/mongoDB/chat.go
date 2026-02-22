@@ -13,27 +13,31 @@ import (
 
 // ChatMessage is used for WebSocket message exchange (keep json tags as-is for compatibility)
 type ChatMessage struct {
-	Event     string `json:"Event,omitempty"`
-	User      string `json:"User"`
-	Message   string `json:"message"`
-	Owner     bool   `json:"owner,omitempty"`
-	RoomID    string `json:"room_id,omitempty"`
-	MessageID string `json:"message_id,omitempty"`
-	ReplyTo   string `json:"reply_to,omitempty"`
+	Event         string `json:"Event,omitempty"`
+	User          string `json:"User"`
+	Message       string `json:"message"`
+	Owner         bool   `json:"owner,omitempty"`
+	RoomID        string `json:"room_id,omitempty"`
+	MessageID     string `json:"message_id,omitempty"`
+	ReplyTo       string `json:"reply_to,omitempty"`
+	Encrypted     bool   `json:"encrypted,omitempty"`
+	EncryptedKeys string `json:"encrypted_keys,omitempty"`
 }
 
 // Chat is the MongoDB storage structure (flat, snake_case)
 type Chat struct {
-	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	CreatedAt time.Time          `json:"created_at" bson:"created_at,omitempty"`
-	EditedAt  *time.Time         `json:"edited_at,omitempty" bson:"edited_at,omitempty"`
-	RoomID    string             `json:"room_id" bson:"room_id,omitempty"`
-	Event     string             `json:"event,omitempty" bson:"event,omitempty"`
-	User      string             `json:"user" bson:"user"`
-	Message   string             `json:"message" bson:"message"`
-	Owner     bool               `json:"owner,omitempty" bson:"owner,omitempty"`
-	ReplyTo   string             `json:"reply_to,omitempty" bson:"reply_to,omitempty"`
-	IsDeleted bool               `json:"is_deleted,omitempty" bson:"is_deleted,omitempty"`
+	ID            primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	CreatedAt     time.Time          `json:"created_at" bson:"created_at,omitempty"`
+	EditedAt      *time.Time         `json:"edited_at,omitempty" bson:"edited_at,omitempty"`
+	RoomID        string             `json:"room_id" bson:"room_id,omitempty"`
+	Event         string             `json:"event,omitempty" bson:"event,omitempty"`
+	User          string             `json:"user" bson:"user"`
+	Message       string             `json:"message" bson:"message"`
+	Owner         bool               `json:"owner,omitempty" bson:"owner,omitempty"`
+	ReplyTo       string             `json:"reply_to,omitempty" bson:"reply_to,omitempty"`
+	IsDeleted     bool               `json:"is_deleted,omitempty" bson:"is_deleted,omitempty"`
+	Encrypted     bool               `json:"encrypted,omitempty" bson:"encrypted,omitempty"`
+	EncryptedKeys map[string]string  `json:"encrypted_keys,omitempty" bson:"encrypted_keys,omitempty"`
 }
 
 var chatCollection *mongo.Collection
@@ -461,6 +465,17 @@ func SearchChatByRoom(roomID, query string, limit int64) ([]Chat, error) {
 		chats = []Chat{}
 	}
 	return chats, nil
+}
+
+// CountTodayMessages returns the count of messages created today.
+func CountTodayMessages() (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	filter := bson.D{{Key: "created_at", Value: bson.D{{Key: "$gte", Value: startOfDay}}}}
+	return chatCollection.CountDocuments(ctx, filter)
 }
 
 // 기존 메시지를 특정 room으로 마이그레이션
