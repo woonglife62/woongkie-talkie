@@ -59,8 +59,17 @@ func InitRoomCollection(database *mongo.Database) error {
 		return err
 	}
 
-	// 기본 "general" 채팅방 생성
-	ensureDefaultRoom(ctx)
+	// members 인덱스 생성 (비공개 방 멤버 조회 최적화)
+	if _, err := roomCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "members", Value: 1}},
+	}); err != nil {
+		return err
+	}
+
+	// #194: ensureDefaultRoom 실패 시 에러 반환
+	if err := ensureDefaultRoom(ctx); err != nil {
+		return err
+	}
 
 	// 기존 메시지를 general 방으로 마이그레이션
 	defaultRoom, err := FindDefaultRoom()
@@ -71,7 +80,8 @@ func InitRoomCollection(database *mongo.Database) error {
 	return nil
 }
 
-func ensureDefaultRoom(ctx context.Context) {
+// #194: ensureDefaultRoom now returns an error so InitRoomCollection can handle it.
+func ensureDefaultRoom(ctx context.Context) error {
 	filter := bson.D{{Key: "is_default", Value: true}}
 	var existing Room
 	err := roomCollection.FindOne(ctx, filter).Decode(&existing)
@@ -86,13 +96,20 @@ func ensureDefaultRoom(ctx context.Context) {
 			IsDefault:   true,
 			Members:     []string{},
 		}
-		roomCollection.InsertOne(ctx, room)
+		_, insertErr := roomCollection.InsertOne(ctx, room)
+		return insertErr
 	}
+	return err
 }
 
 func CreateRoom(room Room) (*Room, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	// #145: MaxMembers=0 → set default 100
+	if room.MaxMembers == 0 {
+		room.MaxMembers = 100
+	}
 
 	room.CreatedAt = time.Now()
 	if room.Members == nil {
@@ -100,28 +117,41 @@ func CreateRoom(room Room) (*Room, error) {
 	}
 	result, err := roomCollection.InsertOne(ctx, room)
 	if err != nil {
+		// #136: duplicate name returns a descriptive error
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, ErrDuplicateRoomName
+		}
 		return nil, err
 	}
 	room.ID = result.InsertedID.(primitive.ObjectID)
 	return &room, nil
 }
 
-func FindRooms() ([]Room, error) {
+// FindRooms returns all public rooms, plus private rooms where username is a member.
+// #280: include private rooms the user is a member of
+// #285: always returns non-nil slice
+func FindRooms(username string) ([]Room, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	filter := bson.D{{Key: "is_public", Value: true}}
+	filter := bson.D{{Key: "$or", Value: bson.A{
+		bson.D{{Key: "is_public", Value: true}},
+		bson.D{
+			{Key: "is_public", Value: false},
+			{Key: "members", Value: username},
+		},
+	}}}
 	cur, err := roomCollection.Find(ctx, filter)
 	if err != nil {
-		return nil, err
+		return []Room{}, err
 	}
 	defer cur.Close(ctx)
 
-	var rooms []Room
+	rooms := []Room{}
 	for cur.Next(ctx) {
 		var room Room
 		if err := cur.Decode(&room); err != nil {
-			return nil, err
+			return []Room{}, err
 		}
 		rooms = append(rooms, room)
 	}
@@ -158,24 +188,39 @@ func FindDefaultRoom() (*Room, error) {
 	return &room, nil
 }
 
+// DeleteRoom deletes a room by ID if the username is the creator.
+// #187: also deletes related chat messages and file metadata.
 func DeleteRoom(id string, username string) error {
 	room, err := FindRoomByID(id)
 	if err != nil {
-		return err
+		return ErrNotFound
 	}
 	if room.IsDefault {
 		return errors.New("기본 채팅방은 삭제할 수 없습니다")
 	}
 	if room.CreatedBy != username {
-		return errors.New("채팅방 생성자만 삭제할 수 있습니다")
+		return ErrForbidden
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	objID, _ := primitive.ObjectIDFromHex(id)
 	_, err = roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
-	return err
+	if err != nil {
+		return err
+	}
+
+	// #187: delete related chat messages
+	if chatCollection != nil {
+		chatCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: id}})
+	}
+	// #187: delete related file metadata
+	if fileCollection != nil {
+		fileCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: id}})
+	}
+
+	return nil
 }
 
 func JoinRoom(roomID string, username string) error {
@@ -245,19 +290,61 @@ func CheckRoomPassword(room *Room, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(room.Password), []byte(password)) == nil
 }
 
+// LeaveRoom removes a member from a room.
+// #186: if the leaving user is the creator, transfer ownership to the next member or delete the room.
 func LeaveRoom(roomID string, username string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	objID, err := primitive.ObjectIDFromHex(roomID)
 	if err != nil {
 		return err
 	}
+
+	room, err := FindRoomByID(roomID)
+	if err != nil {
+		return err
+	}
+
+	// Remove the user from members
 	_, err = roomCollection.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: objID}},
 		bson.D{{Key: "$pull", Value: bson.D{{Key: "members", Value: username}}}},
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// #186: ownership transfer if creator is leaving
+	if room.CreatedBy == username && !room.IsDefault {
+		// Find remaining members after removal
+		remainingMembers := []string{}
+		for _, m := range room.Members {
+			if m != username {
+				remainingMembers = append(remainingMembers, m)
+			}
+		}
+
+		if len(remainingMembers) == 0 {
+			// No members left: delete the room and its messages
+			roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
+			if chatCollection != nil {
+				chatCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: roomID}})
+			}
+			if fileCollection != nil {
+				fileCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: roomID}})
+			}
+		} else {
+			// Transfer ownership to the next member
+			newOwner := remainingMembers[0]
+			roomCollection.UpdateOne(ctx,
+				bson.D{{Key: "_id", Value: objID}},
+				bson.D{{Key: "$set", Value: bson.D{{Key: "created_by", Value: newOwner}}}},
+			)
+		}
+	}
+
+	return nil
 }
 
 // FindAllRooms returns all rooms with pagination.
@@ -301,14 +388,32 @@ func CountRooms() (int64, error) {
 }
 
 // AdminDeleteRoom force-deletes a room by ID.
+// #281/#147: prevents deletion of the default room.
 func AdminDeleteRoom(roomID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	room, err := FindRoomByID(roomID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if room.IsDefault {
+		return errors.New("기본 채팅방은 삭제할 수 없습니다")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	objID, err := primitive.ObjectIDFromHex(roomID)
+	objID, _ := primitive.ObjectIDFromHex(roomID)
+	_, err = roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
 	if err != nil {
 		return err
 	}
-	_, err = roomCollection.DeleteOne(ctx, bson.D{{Key: "_id", Value: objID}})
-	return err
+
+	// Also delete related chat messages and file metadata
+	if chatCollection != nil {
+		chatCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: roomID}})
+	}
+	if fileCollection != nil {
+		fileCollection.DeleteMany(ctx, bson.D{{Key: "room_id", Value: roomID}})
+	}
+
+	return nil
 }

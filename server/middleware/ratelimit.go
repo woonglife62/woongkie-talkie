@@ -129,7 +129,8 @@ func RoomCreateRateLimit() echo.MiddlewareFunc {
 	}
 }
 
-// NewWSMessageLimiter creates a per-client WebSocket message rate limiter (30 msg/min).
+// NewWSMessageLimiter creates a per-client WebSocket message rate limiter.
+// Rate: 1 message per 2 seconds (30 msg/min), burst of 5 (#196).
 func NewWSMessageLimiter() *rate.Limiter {
 	return rate.NewLimiter(rate.Every(2*time.Second), 5)
 }

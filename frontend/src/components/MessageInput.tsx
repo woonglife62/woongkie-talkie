@@ -24,6 +24,7 @@ export function MessageInput({
   const [showEmoji, setShowEmoji] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +89,7 @@ export function MessageInput({
   const uploadFile = useCallback(
     async (file: File) => {
       setIsUploading(true);
+      setUploadError(null);
       try {
         const res = await api.files.upload(roomId, file);
         const payload: WSMessage = {
@@ -98,7 +100,9 @@ export function MessageInput({
         };
         onSend(payload);
       } catch (err) {
-        console.error('Upload failed:', err);
+        const msg = err instanceof Error ? err.message : '파일 업로드에 실패했습니다.';
+        setUploadError(msg);
+        setTimeout(() => setUploadError(null), 4000);
       } finally {
         setIsUploading(false);
       }
@@ -144,6 +148,11 @@ export function MessageInput({
         <div className="drag-overlay">파일을 여기에 놓으세요</div>
       )}
 
+      {uploadError && (
+        <div style={{ padding: '4px 16px', color: '#dc3545', fontSize: 13, background: 'rgba(220,53,69,0.08)', borderRadius: 4, marginBottom: 4 }}>
+          {uploadError}
+        </div>
+      )}
       {replyTo && (
         <div className="reply-preview">
           <span className="reply-preview-text">

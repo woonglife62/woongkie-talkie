@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"html"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 )
 
@@ -32,14 +34,22 @@ type AuthResponse struct {
 	User  mongodb.User `json:"user"`
 }
 
-// setAuthCookie writes the JWT as an httpOnly, Secure, SameSite=Strict cookie.
+// isSecureCookie returns true only when TLS is actually configured,
+// so the Secure flag is set correctly regardless of IS_DEV value.
+// This prevents cookies from being rejected on HTTP (e.g. Docker prod without TLS).
+func isSecureCookie() bool {
+	return config.TLSConfig.CertFile != "" && config.TLSConfig.KeyFile != ""
+}
+
+// setAuthCookie writes the JWT as an httpOnly, SameSite cookie.
+// Secure flag is only set when TLS is configured (not just IS_DEV).
 func setAuthCookie(c echo.Context, token string, expiry time.Duration) {
 	cookie := new(http.Cookie)
 	cookie.Name = "auth_token"
 	cookie.Value = token
 	cookie.HttpOnly = true
-	cookie.Secure = true
-	cookie.SameSite = http.SameSiteStrictMode
+	cookie.Secure = isSecureCookie()
+	cookie.SameSite = http.SameSiteLaxMode
 	cookie.Path = "/"
 	if expiry > 0 {
 		cookie.Expires = time.Now().Add(expiry)
@@ -54,8 +64,8 @@ func clearAuthCookie(c echo.Context) {
 	cookie.Name = "auth_token"
 	cookie.Value = ""
 	cookie.HttpOnly = true
-	cookie.Secure = true
-	cookie.SameSite = http.SameSiteStrictMode
+	cookie.Secure = isSecureCookie()
+	cookie.SameSite = http.SameSiteLaxMode
 	cookie.Path = "/"
 	cookie.MaxAge = -1
 	cookie.Expires = time.Unix(0, 0)
@@ -71,19 +81,24 @@ func RegisterHandler(c echo.Context) error {
 	if !usernameRegexp.MatchString(req.Username) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름은 3자 이상 30자 이하의 영문자, 숫자, _, -만 사용 가능합니다"})
 	}
-	if len(req.Password) < 6 || len(req.Password) > 72 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 6자 이상 72자 이하이어야 합니다"})
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "비밀번호는 8자 이상 72자 이하이어야 합니다"})
 	}
 
 	displayName := req.DisplayName
 	if displayName == "" {
 		displayName = req.Username
 	}
+	displayName = html.EscapeString(strings.TrimSpace(displayName))
 
 	user, err := mongodb.CreateUser(req.Username, req.Password, displayName)
 	if err != nil {
-		logger.AuditLog("register_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "duplicate"))
-		return c.JSON(http.StatusConflict, map[string]string{"error": "이미 존재하는 사용자 이름입니다"})
+		if mongo.IsDuplicateKeyError(err) {
+			logger.AuditLog("register_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "duplicate"))
+			return c.JSON(http.StatusConflict, map[string]string{"error": "이미 존재하는 사용자 이름입니다"})
+		}
+		logger.AuditLog("register_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "db_error"))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "회원가입에 실패했습니다"})
 	}
 
 	token, err := generateToken(user.Username)
@@ -116,6 +131,11 @@ func LoginHandler(c echo.Context) error {
 	if !mongodb.CheckPassword(user, req.Password) {
 		logger.AuditLog("login_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "wrong_password"))
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자 이름 또는 비밀번호가 올바르지 않습니다"})
+	}
+
+	if user.Role == "blocked" {
+		logger.AuditLog("login_failed", req.Username, zap.String("ip", c.RealIP()), zap.String("reason", "blocked"))
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "차단된 계정입니다"})
 	}
 
 	token, err := generateToken(user.Username)
@@ -184,6 +204,15 @@ func RefreshHandler(c echo.Context) error {
 	// If token has expiry, check that it is within the refresh grace period
 	if claims.ExpiresAt != nil && time.Since(claims.ExpiresAt.Time) > config.RefreshGracePeriod {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "토큰이 만료되었습니다. 다시 로그인하세요"})
+	}
+
+	// Verify user still exists and is not blocked
+	refreshUser, err := mongodb.FindUserByUsername(claims.Subject)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "사용자를 찾을 수 없습니다"})
+	}
+	if refreshUser.Role == "blocked" {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "차단된 계정입니다"})
 	}
 
 	newToken, err := generateToken(claims.Subject)

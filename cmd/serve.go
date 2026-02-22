@@ -66,13 +66,20 @@ var serveCmd = &cobra.Command{
 
 		router.Router(e)
 
+		// #273: support PORT environment variable (default: 8080)
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		addr := ":" + port
+
 		// Start server in goroutine
 		go func() {
 			var err error
 			if config.TLSConfig.CertFile != "" && config.TLSConfig.KeyFile != "" {
-				err = e.StartTLS(":8080", config.TLSConfig.CertFile, config.TLSConfig.KeyFile)
+				err = e.StartTLS(addr, config.TLSConfig.CertFile, config.TLSConfig.KeyFile)
 			} else {
-				err = e.Start(":8080")
+				err = e.Start(addr)
 			}
 			if err != nil && err != http.ErrServerClosed {
 				e.Logger.Fatal("shutting down the server")

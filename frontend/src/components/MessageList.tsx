@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { api } from '../api/client';
 import type { Message } from '../types';
@@ -32,34 +32,48 @@ export function MessageList({ roomId, currentUser, onReply }: MessageListProps) 
   const { updateMessage, deleteMessage } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  const handleEdit = async (msg: Message) => {
+  // Auto-clear action error after 3 seconds
+  useEffect(() => {
+    if (!actionError) return;
+    const t = setTimeout(() => setActionError(null), 3000);
+    return () => clearTimeout(t);
+  }, [actionError]);
+
+  const handleEdit = useCallback(async (msg: Message) => {
     if (!editState) return;
     try {
       await api.messages.edit(roomId, msg.id, editState.text);
       updateMessage(roomId, msg.id, editState.text);
-    } catch {
-      // ignore
+      setEditState(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '메시지 수정에 실패했습니다.');
+      setEditState(null);
     }
-    setEditState(null);
-  };
+  }, [editState, roomId, updateMessage]);
 
-  const handleDelete = async (msgId: string) => {
+  const handleDelete = useCallback(async (msgId: string) => {
     if (!confirm('메시지를 삭제하시겠습니까?')) return;
     try {
       await api.messages.delete(roomId, msgId);
       deleteMessage(roomId, msgId);
-    } catch {
-      // ignore
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '메시지 삭제에 실패했습니다.');
     }
-  };
+  }, [roomId, deleteMessage]);
 
   return (
     <div className="messages-area">
+      {actionError && (
+        <div className="msg-alert" style={{ color: '#dc3545', padding: '6px 16px', background: 'rgba(220,53,69,0.08)', borderRadius: 6, margin: '4px 16px' }}>
+          {actionError}
+        </div>
+      )}
       {messages.map((msg) => {
         const isMe = msg.user === currentUser;
         const cls = isMe ? 'msg-me' : 'msg-you';
@@ -78,7 +92,7 @@ export function MessageList({ roomId, currentUser, onReply }: MessageListProps) 
               <div className="msg-username">{msg.display_name || msg.user}</div>
             )}
             {msg.reply_to && (
-              <span className="reply-quote">
+              <span className="reply-quote" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 'min(300px, 70vw)' }}>
                 {msg.reply_to_user}: {msg.reply_to_message}
               </span>
             )}

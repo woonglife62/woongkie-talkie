@@ -3,12 +3,16 @@ package redisclient
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 var client *redis.Client
+
+// clientAvailable tracks Redis availability without data races (#174).
+var clientAvailable atomic.Bool
 
 // Initialize creates and tests a Redis connection with a connection pool.
 func Initialize(addr, password string, db int) error {
@@ -32,20 +36,22 @@ func Initialize(addr, password string, db int) error {
 	}
 
 	client = c
+	clientAvailable.Store(true)
 	return nil
 }
 
 // Close shuts down the Redis client.
 func Close() {
 	if client != nil {
+		clientAvailable.Store(false)
 		client.Close()
 		client = nil
 	}
 }
 
-// IsAvailable returns true when the client is initialized.
+// IsAvailable returns true when the client is initialized (#174).
 func IsAvailable() bool {
-	return client != nil
+	return clientAvailable.Load()
 }
 
 // Ping checks the connection liveness.

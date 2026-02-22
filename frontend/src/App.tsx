@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Login } from './components/Login';
 import { ChatRoom } from './components/ChatRoom';
 import { RoomSidebar } from './components/RoomSidebar';
@@ -10,13 +10,13 @@ export default function App() {
   const { isAuthenticated, isLoading, user, fetchMe } = useAuthStore();
   const { setCurrentRoom, currentRoom } = useRoomStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    if (token && !user) {
-      fetchMe();
-    }
-  }, []);
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetchMe();
+  }, [fetchMe]);
 
   if (isLoading) {
     return <div className="spinner">로딩 중...</div>;

@@ -9,7 +9,7 @@ import (
 )
 
 // RefreshGracePeriod is the maximum time after token expiry during which a refresh is still allowed.
-const RefreshGracePeriod = 24 * time.Hour
+const RefreshGracePeriod = 1 * time.Hour
 
 type jwtConfig struct {
 	Secret string `env:"JWT_SECRET" validate:"required,min=32"`

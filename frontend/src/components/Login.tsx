@@ -15,6 +15,10 @@ export function Login() {
       setError('아이디와 비밀번호를 입력해주세요.');
       return;
     }
+    if (mode === 'register' && password.length < 6) {
+      setError('비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
     try {
       if (mode === 'login') {
         await login(username.trim(), password);

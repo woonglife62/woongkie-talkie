@@ -1,21 +1,14 @@
 const BASE_URL = '';
 
-function getToken(): string | null {
-  return localStorage.getItem('auth_token');
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
     ...(options.headers as Record<string, string>),
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -105,13 +98,10 @@ export const api = {
     upload: (roomId: string, file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      const token = getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
       return fetch(`/rooms/${roomId}/upload`, {
         method: 'POST',
-        headers,
         credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
         body: formData,
       }).then(async (res) => {
         if (!res.ok) throw new Error(`Upload failed: ${res.status}`);

@@ -88,6 +88,7 @@ export function ChatRoom({ username, onToggleSidebar }: ChatRoomProps) {
   );
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { sendMessage, sendTyping } = useWebSocket(
     currentRoom?.id ?? null,
     username
@@ -97,10 +98,11 @@ export function ChatRoom({ username, onToggleSidebar }: ChatRoomProps) {
   useEffect(() => {
     if (!currentRoom) return;
     setReplyTo(null);
+    setLoadError(null);
     api.messages
       .list(currentRoom.id)
       .then((res) => setMessages(currentRoom.id, res.messages || []))
-      .catch(() => {});
+      .catch(() => setLoadError('메시지를 불러오지 못했습니다. 새로고침해 주세요.'));
   }, [currentRoom?.id]);
 
   const handleSend = useCallback(
@@ -123,7 +125,7 @@ export function ChatRoom({ username, onToggleSidebar }: ChatRoomProps) {
         <div className="chat-header">
           <button
             className="btn-icon sidebar-toggle"
-            style={{ display: 'none', marginRight: 8 }}
+            style={{ marginRight: 8 }}
             onClick={onToggleSidebar}
           >
             ☰
@@ -145,7 +147,7 @@ export function ChatRoom({ username, onToggleSidebar }: ChatRoomProps) {
         <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
           <button
             className="btn-icon sidebar-toggle"
-            style={{ display: 'none', marginRight: 8 }}
+            style={{ marginRight: 8 }}
             onClick={onToggleSidebar}
           >
             ☰
@@ -176,7 +178,12 @@ export function ChatRoom({ username, onToggleSidebar }: ChatRoomProps) {
         </div>
       )}
 
-      <div className="chat-body">
+      <div className="chat-body" style={{ flexDirection: 'column' }}>
+        {loadError && (
+          <div style={{ padding: '8px 16px', background: 'rgba(220,53,69,0.1)', color: '#dc3545', fontSize: 13, flexShrink: 0 }}>
+            {loadError}
+          </div>
+        )}
         <MessageList
           roomId={currentRoom.id}
           currentUser={username}

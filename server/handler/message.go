@@ -4,6 +4,7 @@ import (
 	"errors"
 	"html"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
@@ -41,7 +42,8 @@ func EditMessageHandler(c echo.Context) error {
 	}
 	req.Message = html.EscapeString(req.Message)
 
-	updated, err := mongodb.EditChat(msgID, username, req.Message)
+	// #202: pass roomID to scope the edit query to the correct room
+	updated, err := mongodb.EditChat(msgID, username, roomID, req.Message)
 	if err != nil {
 		switch {
 		case errors.Is(err, mongodb.ErrForbidden):
@@ -57,15 +59,20 @@ func EditMessageHandler(c echo.Context) error {
 	}
 	logger.AuditLog("message_edited", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 
-	// Broadcast MSG_EDIT event to room
+	// Broadcast MSG_EDIT event to room (#208)
 	hub := RoomMgr.GetHub(roomID)
 	if hub != nil {
-		hub.Broadcast <- mongodb.ChatMessage{
+		select {
+		case hub.Broadcast <- mongodb.ChatMessage{
 			Event:     "MSG_EDIT",
 			User:      username,
 			Message:   updated.Message,
 			RoomID:    roomID,
 			MessageID: msgID,
+		}:
+		case <-hub.stop:
+		case <-time.After(5 * time.Second):
+			logger.Logger.Warnw("EditMessage: broadcast timed out", "room_id", roomID)
 		}
 	}
 
@@ -97,14 +104,19 @@ func DeleteMessageHandler(c echo.Context) error {
 
 	logger.AuditLog("message_deleted", username, zap.String("msg_id", msgID), zap.String("room_id", roomID))
 
-	// Broadcast MSG_DELETE event to room
+	// Broadcast MSG_DELETE event to room (#208)
 	hub := RoomMgr.GetHub(roomID)
 	if hub != nil {
-		hub.Broadcast <- mongodb.ChatMessage{
+		select {
+		case hub.Broadcast <- mongodb.ChatMessage{
 			Event:     "MSG_DELETE",
 			User:      username,
 			RoomID:    roomID,
 			MessageID: msgID,
+		}:
+		case <-hub.stop:
+		case <-time.After(5 * time.Second):
+			logger.Logger.Warnw("DeleteMessage: broadcast timed out", "room_id", roomID)
 		}
 	}
 
@@ -150,10 +162,13 @@ func ReplyMessageHandler(c echo.Context) error {
 	}
 	req.Message = html.EscapeString(req.Message)
 
-	// Verify the parent message exists
-	_, err := mongodb.FindChatByID(msgID)
+	// #167: verify the parent message exists and is not deleted
+	parent, err := mongodb.FindChatByID(msgID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "원본 메시지를 찾을 수 없습니다"})
+	}
+	if parent.IsDeleted {
+		return c.JSON(http.StatusGone, map[string]string{"error": "삭제된 메시지에는 답장할 수 없습니다"})
 	}
 
 	chatMsg := mongodb.ChatMessage{
@@ -168,16 +183,21 @@ func ReplyMessageHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "메시지 저장에 실패했습니다"})
 	}
 
-	// Broadcast the reply to the room
+	// Broadcast the reply to the room (#208)
 	hub := RoomMgr.GetHub(roomID)
 	if hub != nil {
-		hub.Broadcast <- mongodb.ChatMessage{
+		select {
+		case hub.Broadcast <- mongodb.ChatMessage{
 			Event:     "MSG",
 			User:      username,
 			Message:   req.Message,
 			RoomID:    roomID,
 			MessageID: saved.ID.Hex(),
 			ReplyTo:   msgID,
+		}:
+		case <-hub.stop:
+		case <-time.After(5 * time.Second):
+			logger.Logger.Warnw("ReplyMessage: broadcast timed out", "room_id", roomID)
 		}
 	}
 

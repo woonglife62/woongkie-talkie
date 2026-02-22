@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type LogMessage struct {
@@ -23,6 +24,7 @@ type Log struct {
 var logCollection *mongo.Collection
 
 // InitLogCollection initializes the log collection and runs migrations.
+// #270: creates a TTL index on created_at to auto-expire logs after 30 days.
 func InitLogCollection(database *mongo.Database) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -30,6 +32,16 @@ func InitLogCollection(database *mongo.Database) error {
 	collection := "log"
 	database.CreateCollection(ctx, collection)
 	logCollection = database.Collection(collection)
+
+	// #270: TTL index: expire log documents after 30 days
+	ttlSeconds := int32(30 * 24 * 60 * 60)
+	ttlIndex := mongo.IndexModel{
+		Keys:    bson.D{{Key: "created_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(ttlSeconds),
+	}
+	if _, err := logCollection.Indexes().CreateOne(ctx, ttlIndex); err != nil {
+		return err
+	}
 
 	// Migrate old schema documents to flat structure
 	if err := migrateLogSchema(ctx); err != nil {

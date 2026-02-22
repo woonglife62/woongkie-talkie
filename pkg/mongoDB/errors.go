@@ -8,4 +8,5 @@ var (
 	ErrEditWindowExpired  = errors.New("edit window expired")
 	ErrMessageDeleted     = errors.New("message deleted")
 	ErrNotFound           = errors.New("not found")
+	ErrDuplicateRoomName  = errors.New("duplicate room name")
 )

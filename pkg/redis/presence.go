@@ -134,7 +134,7 @@ func GetOnlineUsers(ctx context.Context, roomID string) ([]string, error) {
 }
 
 // GetTypingUsers returns all usernames currently typing in a room.
-// Uses SMEMBERS and filters out users whose TTL key has expired.
+// Uses SMEMBERS then a single Pipeline of EXISTS checks to avoid N+1 round-trips (#162).
 func GetTypingUsers(ctx context.Context, roomID string) ([]string, error) {
 	if client == nil {
 		return nil, fmt.Errorf("redis: client not initialized")
@@ -143,19 +143,30 @@ func GetTypingUsers(ctx context.Context, roomID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(members) == 0 {
+		return []string{}, nil
+	}
+
+	pipe := client.Pipeline()
+	cmds := make([]*redis.IntCmd, len(members))
+	for i, username := range members {
+		cmds[i] = pipe.Exists(ctx, typingUserKey(roomID, username))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
 
 	active := make([]string, 0, len(members))
-	for _, username := range members {
-		exists, err := client.Exists(ctx, typingUserKey(roomID, username)).Result()
-		if err != nil {
-			continue
-		}
-		if exists > 0 {
+	stale := make([]interface{}, 0)
+	for i, username := range members {
+		if cmds[i].Val() > 0 {
 			active = append(active, username)
 		} else {
-			// TTL key expired; clean up stale Set member
-			client.SRem(ctx, typingSetKey(roomID), username)
+			stale = append(stale, username)
 		}
+	}
+	if len(stale) > 0 {
+		client.SRem(ctx, typingSetKey(roomID), stale...)
 	}
 	return active, nil
 }

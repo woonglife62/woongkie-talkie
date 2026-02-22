@@ -7,6 +7,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/woonglife62/woongkie-talkie/pkg/config"
+	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 )
 
 func jwtAuth(e *echo.Echo) {
@@ -14,11 +15,15 @@ func jwtAuth(e *echo.Echo) {
 		return func(c echo.Context) error {
 			path := c.Request().URL.Path
 
-			// 인증 불필요 경로 스킵
-			if strings.HasPrefix(path, "/auth/") ||
+			// 인증 불필요 경로 스킵 (명시적 목록)
+			if path == "/auth/register" ||
+				path == "/auth/login" ||
+				path == "/auth/refresh" ||
 				strings.HasPrefix(path, "/view/") ||
 				path == "/login" ||
-				path == "/" {
+				path == "/" ||
+				path == "/docs" ||
+				strings.HasPrefix(path, "/docs/") {
 				return next(c)
 			}
 
@@ -62,6 +67,11 @@ func jwtAuth(e *echo.Echo) {
 			username := claims.Subject
 			if username == "" {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "유효하지 않은 토큰입니다"})
+			}
+
+			// Check if the user is blocked in DB (skip check if DB is unavailable)
+			if user, dbErr := mongodb.FindUserByUsername(username); dbErr == nil && user.Role == "blocked" {
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "차단된 계정입니다"})
 			}
 
 			c.Set("username", username)

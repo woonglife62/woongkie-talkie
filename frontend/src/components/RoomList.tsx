@@ -8,7 +8,7 @@ interface RoomListProps {
 }
 
 export function RoomList({ currentRoomId, onSelectRoom }: RoomListProps) {
-  const { rooms, fetchRooms, isLoading } = useRoomStore();
+  const { rooms, fetchRooms, isLoading, error } = useRoomStore();
 
   useEffect(() => {
     fetchRooms();
@@ -16,6 +16,14 @@ export function RoomList({ currentRoomId, onSelectRoom }: RoomListProps) {
 
   if (isLoading && rooms.length === 0) {
     return <div className="room-list" style={{ padding: '16px', color: 'var(--color-sidebar-muted)' }}>로딩 중...</div>;
+  }
+
+  if (error && rooms.length === 0) {
+    return (
+      <div className="room-list" style={{ padding: '16px', color: '#dc3545', fontSize: 13 }}>
+        {error}
+      </div>
+    );
   }
 
   if (rooms.length === 0) {

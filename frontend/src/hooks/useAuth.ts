@@ -5,8 +5,7 @@ export function useAuth() {
   const { user, isAuthenticated, isLoading, fetchMe, login, register, logout } = useAuthStore();
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    if (token && !user) {
+    if (!user) {
       fetchMe();
     }
   }, []);

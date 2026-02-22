@@ -6,14 +6,14 @@ const OFFLINE_QUEUE_KEY = 'ws_offline_queue';
 
 function getOfflineQueue(): WSMessage[] {
   try {
-    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    return JSON.parse(sessionStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
   } catch {
     return [];
   }
 }
 
 function saveOfflineQueue(queue: WSMessage[]) {
-  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  sessionStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 }
 
 export function useWebSocket(roomId: string | null, username: string | null) {
@@ -25,22 +25,24 @@ export function useWebSocket(roomId: string | null, username: string | null) {
   const flushOfflineQueue = useCallback((ws: WebSocket) => {
     const queue = getOfflineQueue();
     if (queue.length === 0) return;
+    // Only flush messages for the current room (#175: filter by room_id)
+    const remaining: WSMessage[] = [];
     queue.forEach((msg) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (msg.room_id === roomId && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(msg));
+      } else {
+        remaining.push(msg);
       }
     });
-    saveOfflineQueue([]);
-  }, []);
+    saveOfflineQueue(remaining);
+  }, [roomId]);
 
   const connect = useCallback(() => {
     if (!roomId || !username) return;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    const token = localStorage.getItem('auth_token') || '';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host === 'localhost:3000' ? 'localhost:8080' : window.location.host;
-    const url = `${protocol}//${host}/rooms/${roomId}/ws?token=${encodeURIComponent(token)}`;
+    const url = `${protocol}//${window.location.host}/rooms/${roomId}/ws`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -62,11 +64,11 @@ export function useWebSocket(roomId: string | null, username: string | null) {
         case 'MSG': {
           if (!data.User || data.message == null) break;
           const msg: Message = {
-            id: `${Date.now()}-${Math.random()}`,
+            id: data._id || data.message_id || `${Date.now()}-${Math.random()}`,
             room_id: roomId,
             user: data.User,
             message: data.message,
-            created_at: new Date().toISOString(),
+            created_at: data.created_at || new Date().toISOString(),
             reply_to: data.reply_to,
             reply_to_message: data.reply_to_message,
             reply_to_user: data.reply_to_user,
@@ -78,11 +80,11 @@ export function useWebSocket(roomId: string | null, username: string | null) {
         case 'MSG_FILE': {
           if (!data.User || data.message == null) break;
           const msg: Message = {
-            id: `${Date.now()}-${Math.random()}`,
+            id: data._id || data.message_id || `${Date.now()}-${Math.random()}`,
             room_id: roomId,
             user: data.User,
             message: data.message,
-            created_at: new Date().toISOString(),
+            created_at: data.created_at || new Date().toISOString(),
             file_url: data.message,
           };
           addMessage(roomId, msg);

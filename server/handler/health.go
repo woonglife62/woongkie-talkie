@@ -21,33 +21,28 @@ func ReadyHandler(c echo.Context) error {
 
 	if db.Client == nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
-			"status":  "not ready",
-			"mongodb": "disconnected",
-			"redis":   redisStatus(ctx),
+			"status": "not ready",
 		})
 	}
 
 	err := db.Client.Ping(ctx, readpref.Primary())
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
-			"status":  "not ready",
-			"mongodb": "disconnected",
-			"redis":   redisStatus(ctx),
+			"status": "not ready",
 		})
 	}
+
+	// Also verify Redis if available
+	if redisclient.IsAvailable() {
+		if pingErr := redisclient.Ping(ctx); pingErr != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"status": "not ready",
+			})
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]string{
-		"status":  "ok",
-		"mongodb": "connected",
-		"redis":   redisStatus(ctx),
+		"status": "ok",
 	})
 }
 
-func redisStatus(ctx context.Context) string {
-	if !redisclient.IsAvailable() {
-		return "disconnected (fallback mode)"
-	}
-	if err := redisclient.Ping(ctx); err != nil {
-		return "disconnected (fallback mode)"
-	}
-	return "connected"
-}

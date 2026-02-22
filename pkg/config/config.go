@@ -7,7 +7,6 @@ import (
 
 	"github.com/jinzhu/configor"
 	"github.com/joho/godotenv"
-	"github.com/labstack/gommon/log"
 	"github.com/woonglife62/woongkie-talkie/pkg/logger"
 	"gopkg.in/go-playground/validator.v9"
 )
@@ -56,8 +55,12 @@ func LoadAll() error {
 		}
 	}
 
-	if err := godotenv.Load(envFilePath); err != nil {
-		log.Error("Error loading .env file. " + err.Error())
+	// #286: only attempt to load .env if a file was found; production deployments
+	// supply env vars directly and should not produce error logs for missing .env files.
+	if envFilePath != "" {
+		if err := godotenv.Load(envFilePath); err != nil {
+			logger.Logger.Warnw(".env 파일 로드 실패", "path", envFilePath, "error", err)
+		}
 	}
 
 	if err := configor.Load(&Config); err != nil {

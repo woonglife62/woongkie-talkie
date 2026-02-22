@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"html"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:    1024,
 	WriteBufferSize:   1024,
+	HandshakeTimeout:  10 * time.Second,
 	CheckOrigin:       config.CheckOrigin,
 	EnableCompression: true,
 }
@@ -221,10 +223,10 @@ func (c *Client) readPump() {
 		msg.User = c.Username
 		msg.RoomID = c.RoomID
 
-		// Whitelist: only accept MSG and TYPING_* events from clients.
+		// Whitelist: only accept MSG, MSG_FILE and TYPING_* events from clients.
 		// Reject any other event type (e.g. OPEN, CLOSE, WARN) to prevent
-		// clients from spoofing server-generated events (#102).
-		if msg.Event != "MSG" && msg.Event != "TYPING_START" && msg.Event != "TYPING_STOP" {
+		// clients from spoofing server-generated events (#102, #257).
+		if msg.Event != "MSG" && msg.Event != "MSG_FILE" && msg.Event != "TYPING_START" && msg.Event != "TYPING_STOP" {
 			logger.Logger.Warnw("readPump: rejected disallowed event type",
 				"username", c.Username,
 				"event", msg.Event,
@@ -232,50 +234,55 @@ func (c *Client) readPump() {
 			continue
 		}
 
-		if msg.Event != "OPEN" {
-			// Typing events: update Redis presence and broadcast without saving to MongoDB
-			if msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP" {
-				select {
-				case c.Hub.Broadcast <- msg:
-				case <-c.Hub.stop:
-					return
-				}
-				continue
+		// Typing events: update Redis presence and broadcast without saving to MongoDB
+		if msg.Event == "TYPING_START" || msg.Event == "TYPING_STOP" {
+			select {
+			case c.Hub.Broadcast <- msg:
+			case <-c.Hub.stop:
+				return
 			}
+			continue
+		}
 
-			// Rate limit: 30 msg/min per client
-			if !c.msgLimit.Allow() {
-				warn := mongodb.ChatMessage{
-					User:    "system",
-					Message: "메시지 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.",
-					RoomID:  c.RoomID,
-					Event:   "WARN",
-				}
-				select {
-				case c.Send <- warn:
-				default:
-				}
-				continue
+		// Validate: reject empty messages (#262)
+		if strings.TrimSpace(msg.Message) == "" {
+			continue
+		}
+
+		// Rate limit: 30 msg/min per client
+		if !c.msgLimit.Allow() {
+			warn := mongodb.ChatMessage{
+				User:    "system",
+				Message: "메시지 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.",
+				RoomID:  c.RoomID,
+				Event:   "WARN",
 			}
-
-			// Validate message length (max 2000 chars)
-			if len([]rune(msg.Message)) > 2000 {
-				warn := mongodb.ChatMessage{
-					User:    "system",
-					Message: "메시지는 2000자를 초과할 수 없습니다.",
-					RoomID:  c.RoomID,
-					Event:   "WARN",
-				}
-				select {
-				case c.Send <- warn:
-				default:
-				}
-				continue
+			select {
+			case c.Send <- warn:
+			default:
 			}
+			continue
+		}
 
-			// Sanitize message content
-			msg.Message = html.EscapeString(msg.Message)
+		// Validate message length (max 2000 chars)
+		if len([]rune(msg.Message)) > 2000 {
+			warn := mongodb.ChatMessage{
+				User:    "system",
+				Message: "메시지는 2000자를 초과할 수 없습니다.",
+				RoomID:  c.RoomID,
+				Event:   "WARN",
+			}
+			select {
+			case c.Send <- warn:
+			default:
+			}
+			continue
+		}
 
+		// Sanitize message content
+		msg.Message = html.EscapeString(msg.Message)
+
+		if msg.Event == "MSG" {
 			chatMessage := mongodb.ChatMessage{
 				User:    msg.User,
 				Message: msg.Message,
@@ -290,6 +297,18 @@ func (c *Client) readPump() {
 					"username", c.Username,
 				)
 				metrics.MessagesDropped.Inc()
+				// Notify client that message was dropped (#260)
+				warn := mongodb.ChatMessage{
+					User:    "system",
+					Message: "메시지 저장에 실패했습니다. 잠시 후 다시 시도해주세요.",
+					RoomID:  c.RoomID,
+					Event:   "WARN",
+				}
+				select {
+				case c.Send <- warn:
+				default:
+				}
+				continue
 			}
 		}
 

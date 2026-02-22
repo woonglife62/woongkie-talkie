@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"errors"
+	"html"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
 
 	"github.com/labstack/echo/v4"
@@ -11,6 +12,7 @@ import (
 )
 
 // AdminStatsHandler handles GET /admin/stats
+// #235/#223: goroutine count removed from response to avoid internal info leakage
 func AdminStatsHandler(c echo.Context) error {
 	userCount, err := mongodb.CountUsers()
 	if err != nil {
@@ -37,7 +39,6 @@ func AdminStatsHandler(c echo.Context) error {
 		"online_users":   onlineUsers,
 		"active_rooms":   roomCount,
 		"today_messages": todayMessages,
-		"goroutines":     runtime.NumGoroutine(),
 		"total_users":    userCount,
 	})
 }
@@ -67,10 +68,17 @@ func AdminUsersHandler(c echo.Context) error {
 }
 
 // AdminBlockUserHandler handles PUT /admin/users/:username/block
+// #246/#234: prevent admin from blocking themselves
 func AdminBlockUserHandler(c echo.Context) error {
 	username := c.Param("username")
 	if username == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "사용자 이름이 필요합니다"})
+	}
+
+	// Prevent self-block
+	adminUsername := GetUsername(c)
+	if adminUsername != "" && adminUsername == username {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "자기 자신을 차단할 수 없습니다"})
 	}
 
 	var req struct {
@@ -118,6 +126,8 @@ func AdminRoomsHandler(c echo.Context) error {
 }
 
 // AdminDeleteRoomHandler handles DELETE /admin/rooms/:id
+// #281/#147: prevents deletion of the default room
+// #137: distinguishes NotFound vs Forbidden
 func AdminDeleteRoomHandler(c echo.Context) error {
 	roomID := c.Param("id")
 	if roomID == "" {
@@ -125,7 +135,10 @@ func AdminDeleteRoomHandler(c echo.Context) error {
 	}
 
 	if err := mongodb.AdminDeleteRoom(roomID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "채팅방 삭제에 실패했습니다"})
+		if errors.Is(err, mongodb.ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "채팅방을 찾을 수 없습니다"})
+		}
+		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
 	}
 
 	// Also remove the hub if it exists
@@ -135,6 +148,11 @@ func AdminDeleteRoomHandler(c echo.Context) error {
 }
 
 // AdminAnnounceHandler handles POST /admin/rooms/:id/announce
+// #220: 2000 char limit on announce message
+// #218: save announce message to MongoDB
+// #185: return error if room is not active
+// #258: use "ANNOUNCE" event to distinguish from normal MSG
+// #226: XSS protection via html.EscapeString
 func AdminAnnounceHandler(c echo.Context) error {
 	roomID := c.Param("id")
 	if roomID == "" {
@@ -148,17 +166,31 @@ func AdminAnnounceHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "공지 메시지가 필요합니다"})
 	}
 
-	hub := RoomMgr.GetHub(roomID)
-	if hub == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "활성화된 채팅방을 찾을 수 없습니다"})
+	// #220: enforce message length limit
+	if len([]rune(req.Message)) > 2000 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "공지 메시지는 2000자를 초과할 수 없습니다"})
 	}
 
-	hub.Broadcast <- mongodb.ChatMessage{
-		Event:   "MSG",
+	// #185: return error if the room hub is not active
+	hub := RoomMgr.GetHub(roomID)
+	if hub == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "활성화된 채팅방을 찾을 수 없습니다. 사용자가 접속해 있어야 공지를 보낼 수 있습니다."})
+	}
+
+	// #226: escape HTML to prevent XSS
+	safeMessage := html.EscapeString(req.Message)
+
+	announceMsg := mongodb.ChatMessage{
+		Event:   "ANNOUNCE", // #258: distinct event type
 		User:    "system",
-		Message: "[공지] " + req.Message,
+		Message: "[공지] " + safeMessage,
 		RoomID:  roomID,
 	}
+
+	// #218: persist announce to MongoDB
+	mongodb.InsertChat(announceMsg)
+
+	hub.Broadcast <- announceMsg
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "공지가 전송되었습니다"})
 }

@@ -72,13 +72,15 @@ func TestJWTAuth_SkipPaths(t *testing.T) {
 	skipPaths := []string{
 		"/auth/register",
 		"/auth/login",
-		"/auth/",
+		"/auth/refresh",
 		"/view/index",
 		"/view/",
 		"/login",
 		"/",
 		"/health",
 		"/ready",
+		"/docs",
+		"/docs/openapi.yaml",
 	}
 
 	for _, path := range skipPaths {
@@ -87,6 +89,27 @@ func TestJWTAuth_SkipPaths(t *testing.T) {
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusOK, rec.Code, "path %s should skip auth", path)
+		})
+	}
+}
+
+// TestJWTAuth_AuthRequiredPaths verifies that /auth/me and /auth/logout
+// require authentication (not in skip list).
+func TestJWTAuth_AuthRequiredPaths(t *testing.T) {
+	config.JWTConfig.Secret = testSecret
+	e := setupEcho()
+
+	protectedAuthPaths := []string{
+		"/auth/me",
+		"/auth/logout",
+	}
+
+	for _, path := range protectedAuthPaths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "path %s should require auth", path)
 		})
 	}
 }

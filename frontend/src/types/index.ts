@@ -36,6 +36,8 @@ export interface WSMessage {
   message?: string;
   room_id?: string;
   message_id?: string;
+  _id?: string;
+  created_at?: string;
   reply_to?: string;
   reply_to_message?: string;
   reply_to_user?: string;
@@ -43,7 +45,6 @@ export interface WSMessage {
 
 export interface AuthState {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -66,6 +67,7 @@ export interface RoomState {
   rooms: Room[];
   currentRoom: Room | null;
   isLoading: boolean;
+  error: string | null;
   fetchRooms: () => Promise<void>;
   joinRoom: (roomId: string) => Promise<void>;
   leaveRoom: (roomId: string) => Promise<void>;

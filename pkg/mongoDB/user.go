@@ -71,6 +71,10 @@ func CreateUser(username, password, displayName string) (*User, error) {
 }
 
 func FindUserByUsername(username string) (*User, error) {
+	if userCollection == nil {
+		return nil, ErrNotFound
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -108,6 +112,37 @@ func GetUserPublicKey(username string) (string, error) {
 		return "", err
 	}
 	return user.PublicKey, nil
+}
+
+// GetBatchPublicKeys fetches public keys for multiple usernames in a single query.
+// #245: avoids N+1 queries in GetRoomKeysHandler.
+func GetBatchPublicKeys(usernames []string) (map[string]string, error) {
+	if len(usernames) == 0 {
+		return map[string]string{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.D{{Key: "username", Value: bson.D{{Key: "$in", Value: usernames}}}}
+	projection := options.Find().SetProjection(bson.D{
+		{Key: "username", Value: 1},
+		{Key: "public_key", Value: 1},
+	})
+
+	cursor, err := userCollection.Find(ctx, filter, projection)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	keys := make(map[string]string, len(usernames))
+	for cursor.Next(ctx) {
+		var u User
+		if err := cursor.Decode(&u); err == nil && u.PublicKey != "" {
+			keys[u.Username] = u.PublicKey
+		}
+	}
+	return keys, cursor.Err()
 }
 
 // UpdateUserProfile updates display_name, status_message, and avatar_url for the given username.

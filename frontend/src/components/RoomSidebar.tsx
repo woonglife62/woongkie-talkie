@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { RoomList } from './RoomList';
 import { useRoomStore } from '../stores/roomStore';
 import { useAuthStore } from '../stores/authStore';
@@ -50,6 +50,7 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             placeholder="채팅방 설명"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } }}
           />
         </div>
         {error && <p className="error-msg">{error}</p>}
@@ -65,20 +66,33 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
 export function RoomSidebar({ currentRoomId, onSelectRoom, isOpen, onClose }: RoomSidebarProps) {
   const [showCreate, setShowCreate] = useState(false);
   const { user, logout } = useAuthStore();
+  const [isDark, setIsDark] = useState(() => document.documentElement.getAttribute('data-theme') === 'dark');
+
+  // #168: Initialize dark mode from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      setIsDark(true);
+    } else if (saved === 'light') {
+      document.documentElement.removeAttribute('data-theme');
+      setIsDark(false);
+    }
+  }, []);
 
   const toggleTheme = () => {
     const html = document.documentElement;
-    const isDark = html.getAttribute('data-theme') === 'dark';
-    if (isDark) {
+    const currentlyDark = html.getAttribute('data-theme') === 'dark';
+    if (currentlyDark) {
       html.removeAttribute('data-theme');
       localStorage.setItem('theme', 'light');
+      setIsDark(false);
     } else {
       html.setAttribute('data-theme', 'dark');
       localStorage.setItem('theme', 'dark');
+      setIsDark(true);
     }
   };
-
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
   return (
     <>

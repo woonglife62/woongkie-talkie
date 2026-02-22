@@ -36,7 +36,7 @@ func TestRegisterHandler_UsernameTooShort(t *testing.T) {
 }
 
 // TestRegisterHandler_PasswordTooShort verifies that a password shorter than
-// 6 characters is rejected with 400 before any DB call is made.
+// 8 characters is rejected with 400 before any DB call is made.
 func TestRegisterHandler_PasswordTooShort(t *testing.T) {
 	e := newTestEcho()
 
@@ -49,7 +49,7 @@ func TestRegisterHandler_PasswordTooShort(t *testing.T) {
 	err := RegisterHandler(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "6자 이상")
+	assert.Contains(t, rec.Body.String(), "8자 이상")
 }
 
 // TestRegisterHandler_InvalidJSON verifies that a malformed JSON body returns

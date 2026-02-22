@@ -25,20 +25,16 @@ var testUpgrader = websocket.Upgrader{
 func connectTestClient(t *testing.T, hub *Hub, username string) (*websocket.Conn, func()) {
 	t.Helper()
 
+	registered := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := testUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Logf("upgrade error: %v", err)
 			return
 		}
-		client := &Client{
-			Hub:      hub,
-			Conn:     conn,
-			Send:     make(chan mongodb.ChatMessage, 256),
-			Username: username,
-			RoomID:   hub.RoomID,
-		}
+		client := newClient(hub, conn, username, hub.RoomID) // uses newClient to init msgLimit (#189)
 		hub.Register <- client
+		close(registered) // signal that registration was sent (#284)
 		go client.writePump()
 		// Drain incoming messages (client side drives the test).
 		for {
@@ -55,6 +51,13 @@ func connectTestClient(t *testing.T, hub *Hub, username string) (*websocket.Conn
 	if err != nil {
 		srv.Close()
 		t.Fatalf("dial error: %v", err)
+	}
+
+	// Wait for the server-side handler to send the Register message (#284).
+	select {
+	case <-registered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for client to register")
 	}
 
 	teardown := func() {
@@ -105,9 +108,6 @@ func TestWebSocket_HubCommunication(t *testing.T) {
 	conn, teardown := connectTestClient(t, hub, "alice")
 	defer teardown()
 
-	// Give the hub time to register the client.
-	time.Sleep(20 * time.Millisecond)
-
 	want := mongodb.ChatMessage{
 		User:    "alice",
 		Message: "hello hub",
@@ -133,9 +133,6 @@ func TestWebSocket_MultipleClients(t *testing.T) {
 	defer tearB()
 	connC, tearC := connectTestClient(t, hub, "carol")
 	defer tearC()
-
-	// Allow all three clients to register.
-	time.Sleep(30 * time.Millisecond)
 
 	hub.Broadcast <- mongodb.ChatMessage{User: "alice", Message: "group message"}
 
@@ -176,8 +173,6 @@ func TestWebSocket_ClientDisconnect(t *testing.T) {
 	conn, teardown := connectTestClient(t, hub, "dave")
 	defer teardown()
 
-	time.Sleep(20 * time.Millisecond)
-
 	hub.mu.RLock()
 	countBefore := len(hub.Clients)
 	hub.mu.RUnlock()
@@ -203,8 +198,6 @@ func TestWebSocket_OpenEvent(t *testing.T) {
 	conn, teardown := connectTestClient(t, hub, "eve")
 	defer teardown()
 
-	time.Sleep(20 * time.Millisecond)
-
 	hub.Broadcast <- mongodb.ChatMessage{Event: "OPEN", User: "eve"}
 
 	msg, ok := readNonPresence(t, conn, time.Second)
@@ -222,8 +215,6 @@ func TestWebSocket_CloseEvent(t *testing.T) {
 
 	conn, teardown := connectTestClient(t, hub, "frank")
 	defer teardown()
-
-	time.Sleep(20 * time.Millisecond)
 
 	hub.Broadcast <- mongodb.ChatMessage{Event: "CLOSE", User: "frank"}
 
@@ -256,9 +247,6 @@ func TestWebSocket_ConcurrentBroadcast(t *testing.T) {
 		}
 	}()
 
-	// Allow all clients to register.
-	time.Sleep(50 * time.Millisecond)
-
 	const broadcasts = 10
 	var wg sync.WaitGroup
 	wg.Add(clientCount)
@@ -284,6 +272,122 @@ func TestWebSocket_ConcurrentBroadcast(t *testing.T) {
 		if err := conns[0].ReadJSON(&msg); err != nil {
 			break
 		}
+	}
+}
+
+// TestWebSocket_EmptyMessageRejected verifies that an empty (or whitespace-only)
+// message sent by a client is NOT broadcast to other connected clients (#262).
+func TestWebSocket_EmptyMessageRejected(t *testing.T) {
+	hub := NewHub("room-empty-msg", nil)
+	go hub.Run()
+	defer close(hub.stop)
+
+	// Sender and an observer.
+	connSender, tearSender := connectTestClient(t, hub, "sender")
+	defer tearSender()
+	connObs, tearObs := connectTestClient(t, hub, "observer")
+	defer tearObs()
+
+	// Send an empty message as the sender.
+	emptyMsg := mongodb.ChatMessage{
+		Event:   "MSG",
+		User:    "sender",
+		Message: "",
+		RoomID:  "room-empty-msg",
+	}
+	if err := connSender.WriteJSON(emptyMsg); err != nil {
+		t.Fatalf("failed to send empty message: %v", err)
+	}
+
+	// The observer should NOT receive a MSG event within the timeout.
+	// It may receive PRESENCE events which readNonPresence will skip.
+	connObs.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	var got mongodb.ChatMessage
+	err := connObs.ReadJSON(&got)
+	if err == nil && got.Event == "MSG" {
+		t.Errorf("observer unexpectedly received an empty MSG: %+v", got)
+	}
+}
+
+// TestWebSocket_MSG_FILE_Event verifies that MSG_FILE is in the allowedEvents
+// whitelist and that a MSG_FILE broadcast is received by connected clients.
+func TestWebSocket_MSG_FILE_Event(t *testing.T) {
+	// allowedEvents is a package-level var; verify MSG_FILE is present.
+	if !allowedEvents["MSG_FILE"] {
+		t.Fatal("MSG_FILE must be in the allowedEvents whitelist")
+	}
+
+	hub := NewHub("room-msg-file", nil)
+	go hub.Run()
+	defer close(hub.stop)
+
+	conn, teardown := connectTestClient(t, hub, "uploader")
+	defer teardown()
+
+	hub.Broadcast <- mongodb.ChatMessage{
+		Event:   "MSG_FILE",
+		User:    "uploader",
+		Message: "file.png",
+		RoomID:  "room-msg-file",
+	}
+
+	msg, ok := readNonPresence(t, conn, time.Second)
+	assert.True(t, ok, "expected MSG_FILE message to be received")
+	assert.Equal(t, "MSG_FILE", msg.Event)
+	assert.Equal(t, "uploader", msg.User)
+}
+
+// TestWebSocket_TypingEvent verifies that TYPING_START and TYPING_STOP events
+// are broadcast to other clients but NOT sent back to the originating user.
+func TestWebSocket_TypingEvent(t *testing.T) {
+	hub := NewHub("room-typing", nil)
+	go hub.Run()
+	defer close(hub.stop)
+
+	connTyper, tearTyper := connectTestClient(t, hub, "typer")
+	defer tearTyper()
+	connObs, tearObs := connectTestClient(t, hub, "observer")
+	defer tearObs()
+
+	for _, event := range []string{"TYPING_START", "TYPING_STOP"} {
+		t.Run(event, func(t *testing.T) {
+			hub.Broadcast <- mongodb.ChatMessage{
+				Event:  event,
+				User:   "typer",
+				RoomID: "room-typing",
+			}
+
+			// Observer should receive the typing event.
+			connObs.SetReadDeadline(time.Now().Add(time.Second))
+			var obsMsg mongodb.ChatMessage
+			for {
+				if err := connObs.ReadJSON(&obsMsg); err != nil {
+					t.Fatalf("observer read error waiting for %s: %v", event, err)
+				}
+				if obsMsg.Event == "PRESENCE" {
+					continue
+				}
+				break
+			}
+			assert.Equal(t, event, obsMsg.Event, "observer should receive %s", event)
+			assert.Equal(t, "typer", obsMsg.User)
+
+			// Typer should NOT receive their own typing event back.
+			connTyper.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			var typerMsg mongodb.ChatMessage
+			for {
+				err := connTyper.ReadJSON(&typerMsg)
+				if err != nil {
+					// Timeout is the expected path — no message for the typer.
+					break
+				}
+				if typerMsg.Event == "PRESENCE" {
+					continue
+				}
+				t.Errorf("typer unexpectedly received their own %s event", event)
+				break
+			}
+		})
 	}
 }
 

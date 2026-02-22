@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -10,6 +11,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// parseEncryptedKeys converts a JSON string map to map[string]string.
+// Returns nil if the input is empty or cannot be parsed.
+func parseEncryptedKeys(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil
+	}
+	return m
+}
 
 // ChatMessage is used for WebSocket message exchange (keep json tags as-is for compatibility)
 type ChatMessage struct {
@@ -140,15 +154,19 @@ func InsertManyChat(messages []ChatMessage) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// #289: include ReplyTo and EncryptedKeys in bulk insert
 	docs := make([]interface{}, len(messages))
 	for i, msg := range messages {
 		docs[i] = Chat{
-			CreatedAt: time.Now(),
-			RoomID:    msg.RoomID,
-			Event:     msg.Event,
-			User:      msg.User,
-			Message:   msg.Message,
-			Owner:     msg.Owner,
+			CreatedAt:     time.Now(),
+			RoomID:        msg.RoomID,
+			Event:         msg.Event,
+			User:          msg.User,
+			Message:       msg.Message,
+			Owner:         msg.Owner,
+			ReplyTo:       msg.ReplyTo,
+			Encrypted:     msg.Encrypted,
+			EncryptedKeys: parseEncryptedKeys(msg.EncryptedKeys),
 		}
 	}
 
@@ -165,13 +183,17 @@ func InsertChat(chatMessage ChatMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// #289: include ReplyTo and EncryptedKeys
 	chat := Chat{
-		CreatedAt: time.Now(),
-		RoomID:    chatMessage.RoomID,
-		Event:     chatMessage.Event,
-		User:      chatMessage.User,
-		Message:   chatMessage.Message,
-		Owner:     chatMessage.Owner,
+		CreatedAt:     time.Now(),
+		RoomID:        chatMessage.RoomID,
+		Event:         chatMessage.Event,
+		User:          chatMessage.User,
+		Message:       chatMessage.Message,
+		Owner:         chatMessage.Owner,
+		ReplyTo:       chatMessage.ReplyTo,
+		Encrypted:     chatMessage.Encrypted,
+		EncryptedKeys: parseEncryptedKeys(chatMessage.EncryptedKeys),
 	}
 
 	result, err := chatCollection.InsertOne(ctx, chat)
@@ -195,8 +217,8 @@ func FindChatByRoom(roomID string) (chat []Chat, err error) {
 		{Key: "room_id", Value: roomID},
 		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 	}
-	// Sort ascending by _id (ObjectID embeds timestamp) to get chronological order efficiently.
-	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}).SetLimit(100)
+	// #180: sort by created_at ASC with proper index usage
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(100)
 
 	cur, err := chatCollection.Find(ctx, filter, opts)
 	if err != nil {
@@ -253,6 +275,7 @@ func FindChatByRoomBefore(roomID string, before time.Time, limit int64) (chat []
 }
 
 // 재연결 시 놓친 메시지 조회
+// #166/#268: exclude soft-deleted messages
 func FindChatByRoomAfter(roomID string, after time.Time) ([]Chat, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -260,6 +283,7 @@ func FindChatByRoomAfter(roomID string, after time.Time) ([]Chat, error) {
 	filter := bson.D{
 		{Key: "room_id", Value: roomID},
 		{Key: "created_at", Value: bson.D{{Key: "$gt", Value: after}}},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 	}
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(200)
 
@@ -331,7 +355,8 @@ func FindChatByID(messageID string) (*Chat, error) {
 // user is the owner, the message is within the 5-minute edit window, and not deleted.
 // The ownership, time-window, and deletion checks are performed atomically inside the
 // MongoDB filter to eliminate the TOCTOU race between FindOne and FindOneAndUpdate.
-func EditChat(messageID, username, newMessage string) (*Chat, error) {
+// #202: roomID is included in the filter to ensure the message belongs to the correct room.
+func EditChat(messageID, username, roomID, newMessage string) (*Chat, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -342,7 +367,10 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 
 	// First verify the document exists and return appropriate errors if not editable.
 	var chat Chat
-	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
+	err = chatCollection.FindOne(ctx, bson.D{
+		{Key: "_id", Value: oid},
+		{Key: "room_id", Value: roomID},
+	}).Decode(&chat)
 	if err != nil {
 		return nil, err
 	}
@@ -357,9 +385,10 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 	}
 
 	cutoff := time.Now().Add(-5 * time.Minute)
-	// Atomically update only if user, edit window, and not-deleted conditions still hold.
+	// Atomically update only if user, room, edit window, and not-deleted conditions still hold.
 	filter := bson.D{
 		{Key: "_id", Value: oid},
+		{Key: "room_id", Value: roomID},
 		{Key: "user", Value: username},
 		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 		{Key: "created_at", Value: bson.D{{Key: "$gt", Value: cutoff}}},
@@ -383,6 +412,7 @@ func EditChat(messageID, username, newMessage string) (*Chat, error) {
 }
 
 // DeleteChat soft-deletes a message by setting is_deleted=true and clearing message content.
+// #267: atomic FindOneAndUpdate eliminates TOCTOU race between ownership check and update.
 func DeleteChat(messageID, username string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -392,21 +422,27 @@ func DeleteChat(messageID, username string) error {
 		return err
 	}
 
-	var chat Chat
-	err = chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&chat)
-	if err != nil {
-		return err
+	filter := bson.D{
+		{Key: "_id", Value: oid},
+		{Key: "user", Value: username},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
 	}
-
-	if chat.User != username {
-		return ErrForbidden
-	}
-
 	update := bson.D{{Key: "$set", Value: bson.D{
 		{Key: "is_deleted", Value: true},
 		{Key: "message", Value: ""},
 	}}}
-	_, err = chatCollection.UpdateOne(ctx, bson.D{{Key: "_id", Value: oid}}, update)
+
+	var deleted Chat
+	err = chatCollection.FindOneAndUpdate(ctx, filter, update).Decode(&deleted)
+	if err == mongo.ErrNoDocuments {
+		// Check if the document exists at all to distinguish forbidden vs not found
+		var existing Chat
+		lookupErr := chatCollection.FindOne(ctx, bson.D{{Key: "_id", Value: oid}}).Decode(&existing)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		return ErrForbidden
+	}
 	return err
 }
 

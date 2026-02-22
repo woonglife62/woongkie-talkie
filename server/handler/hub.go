@@ -110,6 +110,8 @@ func (h *Hub) Run() {
 					RoomMgr.mu.Unlock()
 					logger.Logger.Infow("hub idle timeout, shutting down",
 						"room_id", h.RoomID)
+					// Signal stop to release any goroutines waiting on it (#169)
+					close(h.stop)
 					return
 				}
 				RoomMgr.mu.Unlock()
@@ -156,18 +158,27 @@ func (h *Hub) Run() {
 					"username", client.Username,
 				)
 			}
-			h.mu.Unlock()
-			// Update Redis presence and broadcast PRESENCE offline event
-			if redisclient.IsAvailable() {
-				_ = redisclient.SetOffline(context.Background(), client.RoomID, client.Username)
-				_ = redisclient.ClearTyping(context.Background(), client.RoomID, client.Username)
+			// Check if user still has other connections open (multi-tab, #171)
+			remainingConns := 0
+			for c := range h.Clients {
+				if c.Username == client.Username {
+					remainingConns++
+				}
 			}
-			h.broadcastLocal(mongodb.ChatMessage{
-				Event:   "PRESENCE",
-				User:    client.Username,
-				RoomID:  client.RoomID,
-				Message: "offline",
-			})
+			h.mu.Unlock()
+			// Only mark offline if this was the last connection for this user
+			if remainingConns == 0 {
+				if redisclient.IsAvailable() {
+					_ = redisclient.SetOffline(context.Background(), client.RoomID, client.Username)
+					_ = redisclient.ClearTyping(context.Background(), client.RoomID, client.Username)
+				}
+				h.broadcastLocal(mongodb.ChatMessage{
+					Event:   "PRESENCE",
+					User:    client.Username,
+					RoomID:  client.RoomID,
+					Message: "offline",
+				})
+			}
 
 		case msg := <-h.Broadcast:
 			// Message from a local client: publish to Redis or fall back to local broadcast.
@@ -210,6 +221,7 @@ func (h *Hub) Run() {
 // allowedEvents is the whitelist of event types accepted from Redis Pub/Sub.
 var allowedEvents = map[string]bool{
 	"MSG":          true,
+	"MSG_FILE":     true,
 	"MSG_EDIT":     true,
 	"MSG_DELETE":   true,
 	"OPEN":         true,
@@ -290,9 +302,38 @@ func (h *Hub) broadcastLocal(msg mongodb.ChatMessage) {
 			if _, ok := h.Clients[client]; ok {
 				client.closeSend()
 				delete(h.Clients, client)
+				// Clean up Redis presence for evicted client (#146)
+				if redisclient.IsAvailable() {
+					ctx := context.Background()
+					_ = redisclient.SetOffline(ctx, client.RoomID, client.Username)
+					_ = redisclient.ClearTyping(ctx, client.RoomID, client.Username)
+				}
 			}
 		}
 		h.mu.Unlock()
+	}
+}
+
+// KickUser forcibly disconnects all connections for the given username (#242).
+func (h *Hub) KickUser(username string) {
+	h.mu.Lock()
+	var toEvict []*Client
+	for client := range h.Clients {
+		if client.Username == username {
+			toEvict = append(toEvict, client)
+		}
+	}
+	for _, client := range toEvict {
+		client.closeSend()
+		delete(h.Clients, client)
+	}
+	h.mu.Unlock()
+
+	// Clean up Redis presence after kick
+	if redisclient.IsAvailable() && len(toEvict) > 0 {
+		ctx := context.Background()
+		_ = redisclient.SetOffline(ctx, h.RoomID, username)
+		_ = redisclient.ClearTyping(ctx, h.RoomID, username)
 	}
 }
 

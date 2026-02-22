@@ -24,7 +24,8 @@ type FileMetadata struct {
 
 var fileCollection *mongo.Collection
 
-// InitFileCollection initializes the file_metadata collection with an index on room_id.
+// InitFileCollection initializes the file_metadata collection with indexes.
+// #203: adds uploader index in addition to room_id index.
 func InitFileCollection(database *mongo.Database) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -33,10 +34,11 @@ func InitFileCollection(database *mongo.Database) error {
 	database.CreateCollection(ctx, collection)
 	fileCollection = database.Collection(collection)
 
-	indexModel := mongo.IndexModel{
-		Keys: bson.D{{Key: "room_id", Value: 1}},
+	indexes := []mongo.IndexModel{
+		{Keys: bson.D{{Key: "room_id", Value: 1}}},
+		{Keys: bson.D{{Key: "uploader", Value: 1}}},
 	}
-	_, err := fileCollection.Indexes().CreateOne(ctx, indexModel)
+	_, err := fileCollection.Indexes().CreateMany(ctx, indexes)
 	return err
 }
 

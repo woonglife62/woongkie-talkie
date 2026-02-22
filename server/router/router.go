@@ -22,9 +22,9 @@ func getViewPath() string {
 }
 
 func Router(e *echo.Echo) {
-	// pprof는 ENABLE_PPROF=true 환경변수가 설정된 경우에만 활성화
+	// pprof는 ENABLE_PPROF=true 환경변수가 설정된 경우에만 활성화 (AdminRequired 적용)
 	if os.Getenv("ENABLE_PPROF") == "true" {
-		e.GET("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
+		e.GET("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux), middleware.AdminRequired())
 	}
 
 	e.Static("/view", getViewPath())
@@ -39,16 +39,16 @@ func Router(e *echo.Echo) {
 	e.GET("/health", handler.HealthHandler)
 	e.GET("/ready", handler.ReadyHandler)
 
-	// Prometheus 메트릭 (ENABLE_METRICS=true 환경변수가 설정된 경우에만 활성화)
+	// Prometheus 메트릭 (ENABLE_METRICS=true 환경변수가 설정된 경우에만 활성화, AdminRequired 적용)
 	if os.Getenv("ENABLE_METRICS") == "true" {
-		e.GET("/metrics", handler.MetricsHandler())
+		e.GET("/metrics", handler.MetricsHandler(), middleware.AdminRequired())
 	}
 
 	// 인증 엔드포인트 (미들웨어에서 스킵됨, 별도 rate limit 적용)
 	e.POST("/auth/register", handler.RegisterHandler, middleware.AuthRateLimit())
 	e.POST("/auth/login", handler.LoginHandler, middleware.AuthRateLimit())
-	e.POST("/auth/logout", handler.LogoutHandler)
-	e.POST("/auth/refresh", handler.RefreshHandler)
+	e.POST("/auth/logout", handler.LogoutHandler, middleware.AuthRateLimit())
+	e.POST("/auth/refresh", handler.RefreshHandler, middleware.AuthRateLimit())
 	e.GET("/auth/me", handler.MeHandler)
 
 	// 로그인 페이지

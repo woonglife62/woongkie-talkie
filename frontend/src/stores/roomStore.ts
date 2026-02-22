@@ -6,14 +6,15 @@ export const useRoomStore = create<RoomState>((set) => ({
   rooms: [],
   currentRoom: null,
   isLoading: false,
+  error: null,
 
   fetchRooms: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       const res = await api.rooms.list();
       set({ rooms: res.rooms || [], isLoading: false });
-    } catch {
-      set({ isLoading: false });
+    } catch (err) {
+      set({ isLoading: false, error: err instanceof Error ? err.message : '채팅방 목록을 불러오지 못했습니다.' });
     }
   },
 
