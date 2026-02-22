@@ -8,9 +8,8 @@ services:
     container_name: woongkie-talkie
     hostname: woongkie-talkie
     # Optional: copy .env.example to .env and customize before running
-    env_file:
-      - path: .env
-        required: false
+    # env_file:
+    #   - .env
     ports:
       - 8080:8080
     environment:
