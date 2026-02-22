@@ -72,6 +72,8 @@ func Router(e *echo.Echo) {
 	e.PUT("/rooms/:id/messages/:msgId", handler.EditMessageHandler)
 	e.DELETE("/rooms/:id/messages/:msgId", handler.DeleteMessageHandler)
 	e.POST("/rooms/:id/messages/:msgId/reply", handler.ReplyMessageHandler)
+	e.POST("/rooms/:id/upload", handler.UploadFileHandler)
+	e.GET("/files/:fileId", handler.ServeFileHandler)
 
 	// 유저 프로필 API
 	e.GET("/users/:username/profile", handler.GetProfileHandler)

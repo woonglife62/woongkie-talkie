@@ -38,6 +38,11 @@ var serveCmd = &cobra.Command{
 			}()
 		}
 
+		// Ensure uploads directory exists at startup
+		if err := os.MkdirAll("uploads", 0755); err != nil {
+			logger.Logger.Warnw("Failed to create uploads directory", "error", err)
+		}
+
 		// Explicit MongoDB initialization
 		if err := db.Initialize(); err != nil {
 			logger.Logger.Fatalw("MongoDB initialization failed", "error", err)

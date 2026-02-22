@@ -169,6 +169,14 @@
         .emoji-grid button:hover {
             background: var(--color-hover, #f0f0f0);
         }
+
+        /* #89: 파일 업로드 */
+        .file-message img { max-width: 300px; max-height: 200px; border-radius: 8px; cursor: pointer; display: block; margin-top: 4px; }
+        .file-message .file-download { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,0.05); border-radius: 8px; text-decoration: none; color: inherit; margin-top: 4px; }
+        .file-message .file-download:hover { background: rgba(0,0,0,0.1); }
+        #upload-progress { height: 3px; background: #4a90d9; width: 0%; transition: width 0.2s; margin: 4px 0; border-radius: 2px; }
+        .drop-zone-active { outline: 2px dashed #4a90d9 !important; outline-offset: -4px; }
+        #file-btn { background: none; border: none; font-size: 1.2em; cursor: pointer; padding: 4px 8px; }
     </style>
 
     <script src="https://code.jquery.com/jquery-3.6.0.js"
@@ -266,6 +274,9 @@
                         <input class="form-control" type="text" id="chat-message"
                             placeholder="메시지를 입력하세요. (Enter로 전송)"
                             aria-label="메시지 입력">
+                        <!-- #89: 파일 첨부 버튼 -->
+                        <button id="file-btn" type="button" title="파일 첨부" aria-label="파일 첨부">📎</button>
+                        <input type="file" id="file-input" style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain">
                         <!-- #88: 이모지 피커 버튼 -->
                         <button id="emoji-btn" type="button" title="이모지" aria-label="이모지 선택">😀</button>
                         <!-- #88: 이모지 피커 팝업 -->
@@ -1903,6 +1914,178 @@
             }
             $('#chat-message').val('');
         });
+
+        // ── #89: 파일 업로드 ────────────────────────────────────────────
+        (function () {
+            // 파일 크기 포맷
+            function formatFileSize(bytes) {
+                if (bytes >= 1024 * 1024) {
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                }
+                return (bytes / 1024).toFixed(0) + ' KB';
+            }
+
+            // 파일 업로드 함수
+            function uploadFile(file) {
+                if (!currentRoomID) {
+                    showToast('채팅방을 선택하세요.', 'error');
+                    return;
+                }
+                if (file.size > 10 * 1024 * 1024) {
+                    showToast('파일 크기는 10MB를 초과할 수 없습니다.', 'error');
+                    return;
+                }
+
+                // 진행 바 표시
+                var $progressContainer = $('<div id="upload-progress-wrap"><div id="upload-progress"></div></div>');
+                $('#result').append($progressContainer);
+                var $result = $('#result');
+                $result.scrollTop($result[0].scrollHeight);
+
+                var formData = new FormData();
+                formData.append('file', file);
+
+                var xhr = new XMLHttpRequest();
+                xhr.withCredentials = true;
+
+                xhr.upload.addEventListener('progress', function (e) {
+                    if (e.lengthComputable) {
+                        var pct = Math.round((e.loaded / e.total) * 100);
+                        $('#upload-progress').css('width', pct + '%');
+                    }
+                });
+
+                xhr.addEventListener('load', function () {
+                    $('#upload-progress-wrap').remove();
+                    if (xhr.status === 401) {
+                        window.location.href = '/login';
+                        return;
+                    }
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        var errMsg = '파일 업로드에 실패했습니다. (HTTP ' + xhr.status + ')';
+                        try {
+                            var resp = JSON.parse(xhr.responseText);
+                            if (resp && resp.error) errMsg = resp.error;
+                        } catch (e) {}
+                        showToast(errMsg, 'error');
+                    }
+                    // 성공 시 서버가 WebSocket으로 MSG_FILE 브로드캐스트
+                });
+
+                xhr.addEventListener('error', function () {
+                    $('#upload-progress-wrap').remove();
+                    showToast('파일 업로드 중 네트워크 오류가 발생했습니다.', 'error');
+                });
+
+                xhr.open('POST', '/rooms/' + currentRoomID + '/upload');
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.send(formData);
+            }
+
+            // 파일 버튼 클릭
+            $('#file-btn').on('click', function () {
+                $('#file-input').click();
+            });
+
+            // 파일 선택 시 업로드
+            $('#file-input').on('change', function () {
+                var file = this.files[0];
+                if (file) {
+                    uploadFile(file);
+                    this.value = '';
+                }
+            });
+
+            // 드래그 앤 드롭
+            var $chatBody = $('#chat-body');
+            $chatBody.on('dragover', function (e) {
+                e.preventDefault();
+                $chatBody.addClass('drop-zone-active');
+            });
+            $chatBody.on('dragleave', function (e) {
+                $chatBody.removeClass('drop-zone-active');
+            });
+            $chatBody.on('drop', function (e) {
+                e.preventDefault();
+                $chatBody.removeClass('drop-zone-active');
+                var files = e.originalEvent.dataTransfer.files;
+                if (files && files[0]) {
+                    uploadFile(files[0]);
+                }
+            });
+
+            // MSG_FILE WebSocket 핸들러 (appendMessage 패치)
+            var _origAppendMessageFile = appendMessage;
+            appendMessage = function (recData) {
+                if (recData.Event === 'MSG_FILE') {
+                    var meta;
+                    try {
+                        meta = typeof recData.message === 'string' ? JSON.parse(recData.message) : recData.message;
+                    } catch (e) {
+                        meta = {};
+                    }
+                    var filename = meta.filename || '파일';
+                    var mimeType = meta.mime_type || '';
+                    var fileSize = meta.size || 0;
+                    var fileId = meta.id || '';
+                    var isOwner = recData.owner === true;
+
+                    var outArea = document.getElementById('result');
+                    var newTagP = document.createElement('p');
+                    newTagP.setAttribute('class', (isOwner ? 'p-me' : 'p-you') + ' file-message');
+
+                    if (!isOwner) {
+                        var userSpan = document.createElement('span');
+                        userSpan.setAttribute('class', 'user-name');
+                        userSpan.textContent = recData.User || '';
+                        newTagP.appendChild(userSpan);
+                        var spaceSpan = document.createElement('span');
+                        spaceSpan.setAttribute('class', 'user-name-space');
+                        spaceSpan.textContent = ' ';
+                        newTagP.appendChild(spaceSpan);
+                    }
+
+                    var contentSpan = document.createElement('span');
+                    contentSpan.setAttribute('class', isOwner ? 'span-me' : 'span-you');
+
+                    if (mimeType.indexOf('image/') === 0) {
+                        var img = document.createElement('img');
+                        img.src = '/files/' + escapeHtml(fileId);
+                        img.alt = escapeHtml(filename);
+                        img.loading = 'lazy';
+                        img.style.maxWidth = '300px';
+                        img.style.maxHeight = '200px';
+                        img.style.borderRadius = '8px';
+                        img.style.cursor = 'pointer';
+                        img.style.display = 'block';
+                        img.style.marginTop = '4px';
+                        img.addEventListener('click', function () {
+                            window.open('/files/' + escapeHtml(fileId), '_blank');
+                        });
+                        contentSpan.appendChild(img);
+                    } else {
+                        var link = document.createElement('a');
+                        link.href = '/files/' + escapeHtml(fileId);
+                        link.setAttribute('download', escapeHtml(filename));
+                        link.setAttribute('class', 'file-download');
+                        link.innerHTML = '📄 ' + escapeHtml(filename) + ' <small>(' + escapeHtml(formatFileSize(fileSize)) + ')</small>';
+                        contentSpan.appendChild(link);
+                    }
+
+                    newTagP.appendChild(contentSpan);
+                    outArea.appendChild(newTagP);
+                    trimOldMessages();
+
+                    var $result = $('#result');
+                    var distFromBottom = $result[0].scrollHeight - $result[0].scrollTop - $result[0].clientHeight;
+                    if (distFromBottom <= 100) {
+                        $result.scrollTop($result[0].scrollHeight);
+                    }
+                    return;
+                }
+                _origAppendMessageFile(recData);
+            };
+        })();
 
         // #131: 모바일 화면 회전 시 레이아웃 재계산
         (function () {

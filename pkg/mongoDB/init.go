@@ -19,5 +19,8 @@ func InitAll(database *mongo.Database) error {
 	if err := InitRoomCollection(database); err != nil {
 		return err
 	}
+	if err := InitFileCollection(database); err != nil {
+		return err
+	}
 	return nil
 }
