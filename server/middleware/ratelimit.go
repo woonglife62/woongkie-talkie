@@ -72,8 +72,8 @@ func (rl *ipRateLimiter) cleanupLoop() {
 	}
 }
 
-// globalLimiter: 100 requests/minute per IP, burst of 10
-var globalLimiter = newIPRateLimiter(rate.Every(time.Minute/100), 10)
+// globalLimiter: 300 requests/minute per IP, burst of 50
+var globalLimiter = newIPRateLimiter(rate.Every(time.Minute/300), 50)
 
 // authLimiter: stricter limit for auth endpoints — 5 requests/minute per IP, burst of 5
 var authLimiter = newIPRateLimiter(rate.Every(12*time.Second), 5)
@@ -130,7 +130,7 @@ func RoomCreateRateLimit() echo.MiddlewareFunc {
 }
 
 // NewWSMessageLimiter creates a per-client WebSocket message rate limiter.
-// Rate: 1 message per 2 seconds (30 msg/min), burst of 5 (#196).
+// Rate: 1 message per second (60 msg/min), burst of 15.
 func NewWSMessageLimiter() *rate.Limiter {
-	return rate.NewLimiter(rate.Every(2*time.Second), 5)
+	return rate.NewLimiter(rate.Every(time.Second), 15)
 }

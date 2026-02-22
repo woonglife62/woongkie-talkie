@@ -1006,6 +1006,31 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Wide screen layout - center chat content on large monitors */
+@media (min-width: 1200px) {
+  .messages-area {
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .message-input-area {
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .typing-indicator {
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .msg-bubble {
+    max-width: min(560px, 70%);
+  }
+}
+
 /* Landscape mobile fix */
 @media (orientation: landscape) and (max-height: 500px) {
   .sidebar {
