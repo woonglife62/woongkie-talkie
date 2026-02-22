@@ -111,6 +111,24 @@ func DeleteMessageHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "메시지가 삭제되었습니다"})
 }
 
+// GET /rooms/:id/messages/search?q=xxx
+func SearchMessagesHandler(c echo.Context) error {
+	if err := requireRoomMember(c); err != nil {
+		return err
+	}
+	roomID := c.Param("id")
+	query := c.QueryParam("q")
+	if query == "" || len([]rune(query)) > 100 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "검색어는 1자 이상 100자 이하이어야 합니다"})
+	}
+
+	results, err := mongodb.SearchChatByRoom(roomID, query, 50)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "검색에 실패했습니다"})
+	}
+	return c.JSON(http.StatusOK, results)
+}
+
 // POST /rooms/:id/messages/:msgId/reply
 func ReplyMessageHandler(c echo.Context) error {
 	if err := requireRoomMember(c); err != nil {

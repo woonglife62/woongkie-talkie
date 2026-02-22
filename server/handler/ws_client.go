@@ -31,9 +31,10 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     config.CheckOrigin,
+	ReadBufferSize:    1024,
+	WriteBufferSize:   1024,
+	CheckOrigin:       config.CheckOrigin,
+	EnableCompression: true,
 }
 
 // insertQueue is a buffered channel for async MongoDB chat inserts.

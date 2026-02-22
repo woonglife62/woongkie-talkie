@@ -68,6 +68,7 @@ func Router(e *echo.Echo) {
 	e.POST("/rooms/:id/leave", handler.LeaveRoomHandler)
 	e.GET("/rooms/:id/ws", handler.RoomWebSocket, middleware.WSConnLimit())
 	e.GET("/rooms/:id/messages", handler.GetRoomMessagesHandler)
+	e.GET("/rooms/:id/messages/search", handler.SearchMessagesHandler)
 	e.PUT("/rooms/:id/messages/:msgId", handler.EditMessageHandler)
 	e.DELETE("/rooms/:id/messages/:msgId", handler.DeleteMessageHandler)
 	e.POST("/rooms/:id/messages/:msgId/reply", handler.ReplyMessageHandler)

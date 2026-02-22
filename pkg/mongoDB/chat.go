@@ -59,6 +59,12 @@ func InitChatCollection(database *mongo.Database) error {
 		return err
 	}
 
+	// Text index for full-text message search
+	textIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "message", Value: "text"}},
+	}
+	chatCollection.Indexes().CreateOne(ctx, textIndex)
+
 	// Migrate old schema documents to flat structure
 	if err := migrateChatSchema(ctx); err != nil {
 		return err
@@ -421,6 +427,40 @@ func InsertChatWithReply(chatMessage ChatMessage) (*Chat, error) {
 	}
 	chat.ID = result.InsertedID.(primitive.ObjectID)
 	return &chat, nil
+}
+
+// SearchChatByRoom performs a full-text search on messages within a room.
+func SearchChatByRoom(roomID, query string, limit int64) ([]Chat, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.D{
+		{Key: "room_id", Value: roomID},
+		{Key: "is_deleted", Value: bson.D{{Key: "$ne", Value: true}}},
+		{Key: "$text", Value: bson.D{{Key: "$search", Value: query}}},
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "score", Value: bson.D{{Key: "$meta", Value: "textScore"}}}}).
+		SetLimit(limit)
+
+	cur, err := chatCollection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+
+	var chats []Chat
+	for cur.Next(ctx) {
+		var chat Chat
+		if err := cur.Decode(&chat); err != nil {
+			return nil, err
+		}
+		chats = append(chats, chat)
+	}
+	if chats == nil {
+		chats = []Chat{}
+	}
+	return chats, nil
 }
 
 // 기존 메시지를 특정 room으로 마이그레이션

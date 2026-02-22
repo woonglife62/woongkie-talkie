@@ -50,6 +50,125 @@
             #result { flex: 1; min-height: 0; }
             #typing-indicator { padding: 2px 8px; }
         }
+
+        /* #86: 메시지 검색 UI */
+        #search-bar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 1;
+            max-width: 280px;
+            position: relative;
+        }
+        #search-input {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid var(--color-border, #ccc);
+            border-radius: 16px;
+            font-size: 13px;
+            background: var(--color-bg, #fff);
+            color: var(--color-text, #333);
+            outline: none;
+        }
+        #search-input:focus {
+            border-color: #4a90d9;
+        }
+        #search-clear-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #888;
+            padding: 2px 4px;
+            display: none;
+        }
+        #search-results-container {
+            display: none;
+            padding: 8px;
+        }
+        .search-result-item {
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--color-border, #eee);
+            font-size: 13px;
+            cursor: default;
+        }
+        .search-result-item:last-child { border-bottom: none; }
+        .search-highlight {
+            background: #ffe082;
+            border-radius: 2px;
+            padding: 0 1px;
+        }
+        .search-no-result {
+            text-align: center;
+            color: #888;
+            padding: 16px;
+            font-size: 13px;
+        }
+
+        /* #86: 오프라인 대기 메시지 */
+        .msg-pending {
+            opacity: 0.6;
+            font-style: italic;
+        }
+        .msg-pending-label {
+            font-size: 11px;
+            color: #888;
+            margin-left: 4px;
+        }
+
+        /* #88: 이모지 피커 */
+        #emoji-btn {
+            background: none;
+            border: 1px solid var(--color-border, #ccc);
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            flex-shrink: 0;
+        }
+        #emoji-btn:hover { background: var(--color-hover, #f0f0f0); }
+        #emoji-picker {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            right: 0;
+            background: var(--color-bg, #fff);
+            border: 1px solid var(--color-border, #ccc);
+            border-radius: 10px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            padding: 8px;
+            z-index: 1000;
+            width: 260px;
+            display: none;
+        }
+        #emoji-picker.open { display: block; }
+        .emoji-category-label {
+            font-size: 11px;
+            color: #888;
+            margin: 4px 0 2px 2px;
+        }
+        .emoji-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 2px;
+            margin-bottom: 4px;
+        }
+        .emoji-grid button {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 3px;
+            border-radius: 4px;
+            line-height: 1;
+        }
+        .emoji-grid button:hover {
+            background: var(--color-hover, #f0f0f0);
+        }
     </style>
 
     <script src="https://code.jquery.com/jquery-3.6.0.js"
@@ -107,6 +226,11 @@
                     <span id="room-name" aria-live="polite">general</span>
                     <span id="room-desc">기본 채팅방</span>
                 </div>
+                <!-- #86: 메시지 검색 바 -->
+                <div id="search-bar" role="search" aria-label="메시지 검색">
+                    <input type="text" id="search-input" placeholder="메시지 검색..." aria-label="메시지 검색" autocomplete="off">
+                    <button id="search-clear-btn" type="button" aria-label="검색 초기화" title="검색 초기화">&#10005;</button>
+                </div>
                 <div id="chat-header-right">
                     <span id="conn-status" style="font-size:12px; margin-right:8px; color:#28a745;" aria-live="polite" aria-label="연결 상태">&#9679; 연결됨</span>
                     <span id="member-count" aria-label="접속 중인 참여자 수">0</span>
@@ -114,6 +238,9 @@
                     <button id="theme-toggle" title="다크 모드 전환" aria-label="다크 모드 전환">&#9790;</button>
                 </div>
             </header>
+
+            <!-- #86: 검색 결과 컨테이너 -->
+            <div id="search-results-container" aria-live="polite" aria-label="검색 결과"></div>
 
             <div id="chat-body">
                 <div class="shadow-xll p-3 bg-body rounded" id="result"
@@ -135,10 +262,31 @@
 
             <div id="post-message">
                 <div class="shadow-xl p-3 bg-body rounded">
-                    <div class="input-group">
+                    <div class="input-group" style="position:relative;">
                         <input class="form-control" type="text" id="chat-message"
                             placeholder="메시지를 입력하세요. (Enter로 전송)"
                             aria-label="메시지 입력">
+                        <!-- #88: 이모지 피커 버튼 -->
+                        <button id="emoji-btn" type="button" title="이모지" aria-label="이모지 선택">😀</button>
+                        <!-- #88: 이모지 피커 팝업 -->
+                        <div id="emoji-picker" role="dialog" aria-label="이모지 선택">
+                            <div class="emoji-category-label">자주</div>
+                            <div class="emoji-grid">
+                                <button type="button">😀</button><button type="button">😂</button><button type="button">❤️</button><button type="button">👍</button><button type="button">🎉</button><button type="button">🔥</button><button type="button">💯</button><button type="button">😊</button><button type="button">🥺</button><button type="button">😭</button>
+                            </div>
+                            <div class="emoji-category-label">감정</div>
+                            <div class="emoji-grid">
+                                <button type="button">😍</button><button type="button">🥰</button><button type="button">😘</button><button type="button">😜</button><button type="button">🤔</button><button type="button">😤</button><button type="button">😱</button><button type="button">🤗</button><button type="button">😴</button><button type="button">😎</button>
+                            </div>
+                            <div class="emoji-category-label">손</div>
+                            <div class="emoji-grid">
+                                <button type="button">👋</button><button type="button">✌️</button><button type="button">🤞</button><button type="button">🙏</button><button type="button">💪</button><button type="button">👏</button><button type="button">🤝</button><button type="button">👊</button><button type="button">🤙</button><button type="button">✋</button>
+                            </div>
+                            <div class="emoji-category-label">기타</div>
+                            <div class="emoji-grid">
+                                <button type="button">⭐</button><button type="button">🌈</button><button type="button">☀️</button><button type="button">🎵</button><button type="button">💬</button><button type="button">✅</button><button type="button">❌</button><button type="button">🏠</button><button type="button">📱</button><button type="button">💻</button>
+                            </div>
+                        </div>
                         <button class="btn btn-blue" type="button" id="submit-btn" aria-label="메시지 전송">전송</button>
                     </div>
                 </div>
@@ -1560,6 +1708,201 @@
                 });
             }
         })();
+
+        // ── #69: 오프라인 메시지 큐 ────────────────────────────────────
+        var offlineQueue = [];
+
+        function flushOfflineQueue() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            var queue = offlineQueue.slice();
+            offlineQueue = [];
+            try { localStorage.removeItem('offlineQueue'); } catch(e) {}
+            queue.forEach(function (item) {
+                ws.send(JSON.stringify(item));
+            });
+        }
+
+        // connectWebSocket 실행 후 ws.onopen을 래핑하여 큐 플러시 추가
+        var _origConnectWS = connectWebSocket;
+        connectWebSocket = function (roomId) {
+            _origConnectWS(roomId);
+            var _prevOnOpen = ws.onopen;
+            ws.onopen = function (evt) {
+                if (_prevOnOpen) _prevOnOpen.call(ws, evt);
+                flushOfflineQueue();
+            };
+        };
+
+        // ── #86: 메시지 검색 UI ─────────────────────────────────────────
+        (function () {
+            var searchDebounceTimer = null;
+            var isSearchActive = false;
+
+            $('#search-input').on('input', function () {
+                var query = $(this).val().trim();
+                clearTimeout(searchDebounceTimer);
+                if (query.length === 0) {
+                    clearSearch();
+                    return;
+                }
+                $('#search-clear-btn').show();
+                searchDebounceTimer = setTimeout(function () {
+                    doSearch(query);
+                }, 300);
+            });
+
+            $('#search-clear-btn').on('click', function () {
+                $('#search-input').val('');
+                clearSearch();
+            });
+
+            function clearSearch() {
+                $('#search-clear-btn').hide();
+                $('#search-results-container').hide().empty();
+                $('#chat-body').show();
+                isSearchActive = false;
+            }
+
+            function doSearch(query) {
+                if (!currentRoomID) return;
+                authFetch('/rooms/' + currentRoomID + '/messages/search?q=' + encodeURIComponent(query))
+                    .then(function (resp) {
+                        if (!resp) return;
+                        return resp.json();
+                    })
+                    .then(function (data) {
+                        if (!data) return;
+                        var messages = data.messages || data || [];
+                        renderSearchResults(messages, query);
+                    })
+                    .catch(function () {
+                        renderSearchResults([], query);
+                    });
+            }
+
+            function renderSearchResults(messages, query) {
+                var $container = $('#search-results-container');
+                $container.empty();
+                $('#chat-body').hide();
+                $container.show();
+                isSearchActive = true;
+
+                if (messages.length === 0) {
+                    $container.html('<div class="search-no-result">검색 결과가 없습니다.</div>');
+                    return;
+                }
+
+                messages.forEach(function (msg) {
+                    var text = msg.message || '';
+                    var user = msg.user || '';
+                    var highlighted = highlightQuery(escapeHtml(text), escapeHtml(query));
+                    var $item = $('<div class="search-result-item"></div>');
+                    $item.html('<strong>' + escapeHtml(user) + '</strong>: ' + highlighted);
+                    $container.append($item);
+                });
+            }
+
+            function highlightQuery(safeText, safeQuery) {
+                if (!safeQuery) return safeText;
+                var re = new RegExp('(' + safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                return safeText.replace(re, '<mark class="search-highlight">$1</mark>');
+            }
+        })();
+
+        // ── #88: 이모지 피커 ────────────────────────────────────────────
+        (function () {
+            var $picker = $('#emoji-picker');
+            var $btn = $('#emoji-btn');
+            var $input = $('#chat-message');
+
+            $btn.on('click', function (e) {
+                e.stopPropagation();
+                $picker.toggleClass('open');
+            });
+
+            // 이모지 클릭: 커서 위치에 삽입
+            $picker.on('click', '.emoji-grid button', function (e) {
+                e.stopPropagation();
+                var emoji = $(this).text();
+                var inputEl = $input[0];
+                var start = inputEl.selectionStart;
+                var end = inputEl.selectionEnd;
+                var val = $input.val();
+                var newVal = val.substring(0, start) + emoji + val.substring(end);
+                $input.val(newVal);
+                // 커서를 이모지 뒤로
+                var newPos = start + emoji.length;
+                inputEl.setSelectionRange(newPos, newPos);
+                $input.focus();
+                $picker.removeClass('open');
+            });
+
+            // 외부 클릭 시 닫기
+            $(document).on('click', function (e) {
+                if (!$(e.target).closest('#emoji-btn, #emoji-picker').length) {
+                    $picker.removeClass('open');
+                }
+            });
+
+            // ESC 키로 닫기
+            $(document).on('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    $picker.removeClass('open');
+                }
+            });
+        })();
+
+        // ── #69: submit 버튼 오프라인 큐 처리 (기존 핸들러 래핑) ─────────
+        // 기존 #submit-btn click 핸들러를 오프라인 큐 지원으로 확장
+        $('#submit-btn').off('click').on('click', function () {
+            var msg = $('#chat-message').val();
+            if (!msg || msg.trim() === '') return false;
+
+            if (replyToMsgID) {
+                // 답장: REST 사용 (오프라인 큐 미적용)
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    showToast('연결이 끊어져 있습니다. 잠시 후 다시 시도하세요.', 'error');
+                    return false;
+                }
+                $.ajax({
+                    url: '/rooms/' + currentRoomID + '/messages/' + replyToMsgID + '/reply',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ message: msg }),
+                    success: function () { clearReplyTo(); },
+                    error: function (xhr) {
+                        var resp = xhr.responseJSON;
+                        alert(resp ? resp.error : '답장 전송에 실패했습니다.');
+                    }
+                });
+            } else if (ws && ws.readyState === WebSocket.OPEN) {
+                // 정상 전송
+                ws.send(JSON.stringify({ event: 'MESSAGE', user: '', message: msg }));
+            } else {
+                // 오프라인: 큐에 추가하고 UI에 대기 표시
+                var queueItem = { event: 'MESSAGE', user: '', message: msg };
+                offlineQueue.push(queueItem);
+                try { localStorage.setItem('offlineQueue', JSON.stringify(offlineQueue)); } catch(e) {}
+
+                // 대기 메시지를 UI에 표시
+                var $pending = $('<p class="p-me preserve-whitespace msg-pending"></p>');
+                $pending.append('<span class="span-me"><span class="msg-text">' + escapeHtml(msg) + '</span><span class="msg-pending-label">(전송 대기중)</span></span>');
+                $('#result').append($pending);
+                var $r = $('#result');
+                $r.scrollTop($r[0].scrollHeight);
+                showToast('오프라인 상태입니다. 메시지가 연결 후 전송됩니다.', 'warning');
+            }
+
+            // 타이핑 상태 초기화
+            if (isTyping) {
+                isTyping = false;
+                clearTimeout(typingTimer);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: 'TYPING_STOP' }));
+                }
+            }
+            $('#chat-message').val('');
+        });
 
         // #131: 모바일 화면 회전 시 레이아웃 재계산
         (function () {
