@@ -2,6 +2,8 @@ package mongodb
 
 import (
 	"context"
+	"html"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -89,8 +91,8 @@ func UpdateUserProfile(username, displayName, statusMessage, avatarURL string) (
 	defer cancel()
 
 	update := bson.D{{Key: "$set", Value: bson.D{
-		{Key: "display_name", Value: displayName},
-		{Key: "status_message", Value: statusMessage},
+		{Key: "display_name", Value: html.EscapeString(strings.TrimSpace(displayName))},
+		{Key: "status_message", Value: html.EscapeString(strings.TrimSpace(statusMessage))},
 		{Key: "avatar_url", Value: avatarURL},
 	}}}
 	filter := bson.D{{Key: "username", Value: username}}

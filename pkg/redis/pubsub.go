@@ -186,14 +186,13 @@ func (b *Broker) monitorConnection() {
 				}
 				b.mu.Unlock()
 
-				for roomID, handler := range handlers {
+				for roomID := range handlers {
 					ps := b.client.Subscribe(b.ctx, channelName(roomID))
 					b.mu.Lock()
 					b.subscriptions[roomID] = ps
 					b.mu.Unlock()
 					go b.listenRoom(roomID, ps)
 					logger.Logger.Infow("redis: re-subscribed room", "roomID", roomID)
-					_ = handler
 				}
 				continue
 			}

@@ -8,6 +8,18 @@
 
     <title>Woongkie-Talkie</title>
 
+    <!-- #127: 다크 모드 FOUC 방지 - CSS 로드 전에 테마 클래스를 즉시 적용 -->
+    <script>
+        (function () {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
     <link rel="stylesheet" href="/view/style.css">
@@ -30,6 +42,14 @@
         .ws-toast-error { background: #dc3545; color: #fff; }
         .ws-toast-warning { background: #ffc107; color: #333; }
         .ws-toast-info { background: #333; color: #fff; }
+        /* #131: 모바일 가로 회전 시 레이아웃 조정 */
+        @media (orientation: landscape) and (max-height: 500px) {
+            #sidebar { max-height: 100vh; overflow-y: auto; }
+            #chat-header { padding: 4px 8px; min-height: unset; }
+            #post-message { padding: 4px 0; }
+            #result { flex: 1; min-height: 0; }
+            #typing-indicator { padding: 2px 8px; }
+        }
     </style>
 
     <script src="https://code.jquery.com/jquery-3.6.0.js"
@@ -66,7 +86,7 @@
                 <button class="btn btn-sm btn-blue" id="create-room-btn" data-bs-toggle="modal"
                     data-bs-target="#createRoomModal" aria-label="새 채팅방 만들기">+</button>
             </div>
-            <div id="room-list" role="list" aria-label="채팅방 목록"></div>
+            <div id="room-list" role="tablist" aria-label="채팅방 목록" aria-orientation="vertical"></div>
             <div id="sidebar-footer">
                 <div id="profile-info" data-bs-toggle="modal" data-bs-target="#profileModal" title="프로필 편집"
                     role="button" tabindex="0" aria-label="프로필 편집">
@@ -271,7 +291,14 @@
                     window.location.href = '/login';
                     return;
                 }
+                if (!response.ok) {
+                    showToast('요청 처리에 실패했습니다. (HTTP ' + response.status + ')', 'error');
+                }
                 return response;
+            }).catch(function (err) {
+                console.error('fetch error:', err);
+                showToast('네트워크 오류가 발생했습니다.', 'error');
+                throw err;
             });
         }
 
@@ -293,7 +320,19 @@
                     $('#current-user-display').text(currentUser);
                     loadDefaultRoom();
                     loadRooms();
-                    setInterval(loadRooms, 5000);
+                    // #81: 탭 비활성 시 불필요한 폴링 중단
+                    var roomListInterval = setInterval(loadRooms, 5000);
+                    document.addEventListener('visibilitychange', function () {
+                        if (document.hidden) {
+                            clearInterval(roomListInterval);
+                            roomListInterval = null;
+                        } else {
+                            loadRooms();
+                            if (!roomListInterval) {
+                                roomListInterval = setInterval(loadRooms, 5000);
+                            }
+                        }
+                    });
                 },
                 error: function () {
                     window.location.href = '/login';
@@ -341,11 +380,17 @@
         // #120: HTML이 변경된 경우에만 DOM 재구성 (불필요한 재렌더링 방지)
         function buildRoomListHTML(rooms) {
             var html = '';
-            rooms.forEach(function (room) {
+            rooms.forEach(function (room, index) {
                 var onlineCount = room.online_members ? room.online_members.length : 0;
-                var activeClass = room.id === currentRoomID ? 'room-item active' : 'room-item';
+                var isActive = room.id === currentRoomID;
+                var activeClass = isActive ? 'room-item active' : 'room-item';
                 var defaultBadge = room.is_default ? ' <span class="badge bg-secondary">기본</span>' : '';
-                html += '<div class="' + activeClass + '" data-room-id="' + room.id + '">' +
+                // #124: ARIA tab role + keyboard navigation support
+                var tabIndex = isActive ? '0' : '-1';
+                var ariaSelected = isActive ? 'true' : 'false';
+                html += '<div class="' + activeClass + '" data-room-id="' + room.id + '"' +
+                    ' role="tab" tabindex="' + tabIndex + '" aria-selected="' + ariaSelected + '"' +
+                    ' id="room-tab-' + room.id + '">' +
                     '<div class="room-item-name">' + escapeHtml(room.name) + defaultBadge + '</div>' +
                     '<div class="room-item-info">' +
                     '<span class="room-item-members">' + onlineCount + '명 접속</span>' +
@@ -376,6 +421,28 @@
 
                     joinAndSwitch(roomId, room.name, room.description);
                 });
+            });
+
+            // #124: 키보드 네비게이션 (ArrowUp/ArrowDown, Enter/Space)
+            $list.off('keydown.roomtab').on('keydown.roomtab', '[role="tab"]', function (e) {
+                var $tabs = $list.find('[role="tab"]');
+                var $current = $(this);
+                var idx = $tabs.index($current);
+                var $target = null;
+                if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                    $target = $tabs.eq((idx + 1) % $tabs.length);
+                } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                    $target = $tabs.eq((idx - 1 + $tabs.length) % $tabs.length);
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                    $current.trigger('click');
+                    e.preventDefault();
+                    return;
+                } else {
+                    return;
+                }
+                e.preventDefault();
+                $tabs.attr('tabindex', '-1');
+                $target.attr('tabindex', '0').focus();
             });
         }
 
@@ -439,13 +506,16 @@
                     $('#result').empty();
                     for (var i = 0; i < messages.length; i++) {
                         var msg = messages[i];
-                        appendMsg(msg.user, msg.message, msg.user === currentUser);
+                        appendMsg(msg.user, msg.message, msg.user === currentUser, msg.id);
                     }
 
                     if (messages.length > 0) {
                         oldestTimestamp = messages[0].created_at;
                         lastMessageTimestamp = new Date().toISOString();
                     }
+                },
+                error: function() {
+                    showToast('메시지를 불러오는 데 실패했습니다.', 'error');
                 }
             });
         }
@@ -490,11 +560,14 @@
                             var messages = data.messages || [];
                             for (var i = 0; i < messages.length; i++) {
                                 var msg = messages[i];
-                                appendMsg(msg.user, msg.message, msg.user === currentUser);
+                                appendMsg(msg.user, msg.message, msg.user === currentUser, msg.id);
                             }
                             if (messages.length > 0) {
                                 lastMessageTimestamp = new Date().toISOString();
                             }
+                        },
+                        error: function() {
+                            showToast('놓친 메시지를 불러오는 데 실패했습니다.', 'error');
                         }
                     });
                 }
@@ -681,7 +754,7 @@
         }
 
         // 재연결 후 놓친 메시지 추가용 (owner 판별 포함)
-        function appendMsg(user, message, isOwner) {
+        function appendMsg(user, message, isOwner, msgId) {
             var outArea = document.getElementById('result');
             var newTagP = document.createElement('p');
             var newTagSpan = document.createElement('span');
@@ -704,17 +777,32 @@
                 newTagP.appendChild(newTagSpanSpace);
             }
 
+            var msgTextSpan = document.createElement('span');
+            msgTextSpan.setAttribute('class', 'msg-text');
             if (message && validURL(message)) {
                 if (!validProtocol(message)) {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="https://' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 } else {
-                    newTagSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
+                    msgTextSpan.innerHTML = '<a class="hypertext" href="' + escapeHtml(message) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(message) + '</a>';
                 }
             } else {
-                newTagSpan.textContent = message || '';
+                msgTextSpan.textContent = message || '';
+            }
+            newTagSpan.appendChild(msgTextSpan);
+            newTagP.appendChild(newTagSpan);
+
+            if (msgId) {
+                newTagP.setAttribute('data-msg-id', msgId);
+                var actionsDiv = document.createElement('div');
+                actionsDiv.setAttribute('class', 'msg-actions');
+                actionsDiv.innerHTML = '<button class="msg-reply-btn">답장</button>';
+                if (isOwner) {
+                    actionsDiv.innerHTML += '<button class="msg-edit-btn">수정</button>' +
+                                           '<button class="msg-delete-btn">삭제</button>';
+                }
+                newTagP.appendChild(actionsDiv);
             }
 
-            newTagP.appendChild(newTagSpan);
             outArea.appendChild(newTagP);
             trimOldMessages();
 
@@ -1271,6 +1359,16 @@
             checkMobile();
         });
 
+        // #122: 모바일 키보드 표시 시 입력 영역 가려짐 방지 (visualViewport API)
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', function () {
+                var app = document.getElementById('app');
+                if (app) {
+                    app.style.height = window.visualViewport.height + 'px';
+                }
+            });
+        }
+
         // 터치 스와이프로 사이드바 열기/닫기
         (function () {
             var touchStartX = 0;
@@ -1461,6 +1559,32 @@
                     }
                 });
             }
+        })();
+
+        // #131: 모바일 화면 회전 시 레이아웃 재계산
+        (function () {
+            function adjustLayout() {
+                var $result = $('#result');
+                var $body = $('#chat-body');
+                var headerH = $('#chat-header').outerHeight(true) || 0;
+                var postH = $('#post-message').outerHeight(true) || 0;
+                var typingH = $('#typing-indicator').outerHeight(true) || 0;
+                var replyH = $('#reply-preview').outerHeight(true) || 0;
+                var available = window.innerHeight - headerH - postH - typingH - replyH;
+                if (available > 0) {
+                    $body.css('height', available + 'px');
+                }
+            }
+
+            window.addEventListener('orientationchange', function () {
+                setTimeout(adjustLayout, 100);
+            });
+
+            window.addEventListener('resize', function () {
+                if (window.innerHeight < 500) {
+                    adjustLayout();
+                }
+            });
         })();
     </script>
 </body>

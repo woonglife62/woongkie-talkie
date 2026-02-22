@@ -39,8 +39,10 @@ func Router(e *echo.Echo) {
 	e.GET("/health", handler.HealthHandler)
 	e.GET("/ready", handler.ReadyHandler)
 
-	// Prometheus 메트릭 (인증 불필요)
-	e.GET("/metrics", handler.MetricsHandler())
+	// Prometheus 메트릭 (ENABLE_METRICS=true 환경변수가 설정된 경우에만 활성화)
+	if os.Getenv("ENABLE_METRICS") == "true" {
+		e.GET("/metrics", handler.MetricsHandler())
+	}
 
 	// 인증 엔드포인트 (미들웨어에서 스킵됨, 별도 rate limit 적용)
 	e.POST("/auth/register", handler.RegisterHandler, middleware.AuthRateLimit())

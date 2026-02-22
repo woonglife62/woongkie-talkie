@@ -19,6 +19,7 @@ type ipRateLimiter struct {
 	visitors map[string]*visitor
 	r        rate.Limit
 	b        int
+	done     chan struct{}
 }
 
 func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
@@ -26,6 +27,7 @@ func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
 		visitors: make(map[string]*visitor),
 		r:        r,
 		b:        b,
+		done:     make(chan struct{}),
 	}
 	go rl.cleanupLoop()
 	return rl
@@ -45,18 +47,28 @@ func (rl *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
 	return v.limiter
 }
 
+// Close stops the cleanup goroutine.
+func (rl *ipRateLimiter) Close() {
+	close(rl.done)
+}
+
 // cleanupLoop removes visitors that haven't been seen in 10 minutes.
 func (rl *ipRateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		for ip, v := range rl.visitors {
-			if time.Since(v.lastSeen) > 10*time.Minute {
-				delete(rl.visitors, ip)
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.lastSeen) > 10*time.Minute {
+					delete(rl.visitors, ip)
+				}
 			}
+			rl.mu.Unlock()
+		case <-rl.done:
+			return
 		}
-		rl.mu.Unlock()
 	}
 }
 
