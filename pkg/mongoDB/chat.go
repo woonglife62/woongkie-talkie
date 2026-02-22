@@ -33,6 +33,7 @@ type ChatMessage struct {
 	Owner         bool   `json:"owner,omitempty"`
 	RoomID        string `json:"room_id,omitempty"`
 	MessageID     string `json:"message_id,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
 	ReplyTo       string `json:"reply_to,omitempty"`
 	Encrypted     bool   `json:"encrypted,omitempty"`
 	EncryptedKeys string `json:"encrypted_keys,omitempty"`

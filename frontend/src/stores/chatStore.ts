@@ -6,12 +6,18 @@ export const useChatStore = create<ChatState>((set) => ({
   typingUsers: {},
 
   addMessage: (roomId: string, message: Message) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [roomId]: [...(state.messages[roomId] || []), message],
-      },
-    })),
+    set((state) => {
+      const existing = state.messages[roomId] || [];
+      if (existing.some((m) => m.id === message.id)) {
+        return state;
+      }
+      return {
+        messages: {
+          ...state.messages,
+          [roomId]: [...existing, message],
+        },
+      };
+    }),
 
   setMessages: (roomId: string, messages: Message[]) =>
     set((state) => ({

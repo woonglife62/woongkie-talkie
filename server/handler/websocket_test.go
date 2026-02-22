@@ -173,10 +173,13 @@ func TestWebSocket_ClientDisconnect(t *testing.T) {
 	conn, teardown := connectTestClient(t, hub, "dave")
 	defer teardown()
 
-	hub.mu.RLock()
-	countBefore := len(hub.Clients)
-	hub.mu.RUnlock()
-	assert.Equal(t, 1, countBefore, "hub should have 1 client after connect")
+	// Wait for the hub to actually process the Register before checking count.
+	// connectTestClient only waits for the Register *send*, not for the hub to process it.
+	assert.Eventually(t, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.Clients) == 1
+	}, 2*time.Second, 10*time.Millisecond, "hub should have 1 client after connect")
 
 	// Close the client connection — the server-side handler will Unregister.
 	conn.Close()
@@ -186,7 +189,7 @@ func TestWebSocket_ClientDisconnect(t *testing.T) {
 		hub.mu.RLock()
 		defer hub.mu.RUnlock()
 		return len(hub.Clients) == 0
-	}, time.Second, 10*time.Millisecond, "hub should have 0 clients after disconnect")
+	}, 2*time.Second, 10*time.Millisecond, "hub should have 0 clients after disconnect")
 }
 
 // TestWebSocket_OpenEvent verifies that an OPEN event results in a join message.

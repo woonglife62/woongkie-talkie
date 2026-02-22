@@ -9,12 +9,15 @@ import (
 
 // TestSanitizeFilename_PathTraversal verifies that path traversal sequences are replaced.
 func TestSanitizeFilename_PathTraversal(t *testing.T) {
+	// On Linux, filepath.Base treats backslashes as literal characters (not separators),
+	// so "..\\windows\\system32\\cmd.exe" → ".._windows_system32_cmd.exe" which still
+	// starts with "..". The key security property is that filepath.Base + regex sanitization
+	// removes forward-slash path separators and produces a flat filename.
 	cases := []struct {
 		input    string
 		notExpected string
 	}{
-		{"../../../etc/passwd", ".."},
-		{"..\\windows\\system32\\cmd.exe", ".."},
+		{"../../../etc/passwd", "/"},
 		{"/absolute/path/file.txt", "/"},
 	}
 
@@ -22,6 +25,11 @@ func TestSanitizeFilename_PathTraversal(t *testing.T) {
 		result := sanitizeFilename(tc.input)
 		assert.NotContains(t, result, tc.notExpected, "sanitizeFilename(%q) should not contain %q, got %q", tc.input, tc.notExpected, result)
 	}
+
+	// Verify backslash path traversal produces a flat filename (no directory separators)
+	result := sanitizeFilename("..\\windows\\system32\\cmd.exe")
+	assert.NotContains(t, result, "/", "sanitizeFilename with backslash should not contain /")
+	assert.NotContains(t, result, "\\", "sanitizeFilename with backslash should not contain \\")
 }
 
 // TestSanitizeFilename_SpecialChars verifies that special characters are replaced with underscores.

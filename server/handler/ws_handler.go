@@ -37,10 +37,12 @@ func RoomWebSocket(c echo.Context) error {
 		}
 		for _, pastChat := range chatList {
 			tmpMsg := mongodb.ChatMessage{
-				User:    pastChat.User,
-				Message: pastChat.Message,
-				RoomID:  roomID,
-				Event:   "CHATLOG",
+				User:      pastChat.User,
+				Message:   pastChat.Message,
+				RoomID:    roomID,
+				Event:     "CHATLOG",
+				MessageID: pastChat.ID.Hex(),
+				CreatedAt: pastChat.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			}
 			if pastChat.User == clientNm {
 				tmpMsg.Owner = true
@@ -98,10 +100,12 @@ func MsgReceiver(c echo.Context) error {
 		}
 		for _, pastChat := range chatList {
 			tmpMsg := mongodb.ChatMessage{
-				User:    pastChat.User,
-				Message: pastChat.Message,
-				RoomID:  roomID,
-				Event:   "CHATLOG",
+				User:      pastChat.User,
+				Message:   pastChat.Message,
+				RoomID:    roomID,
+				Event:     "CHATLOG",
+				MessageID: pastChat.ID.Hex(),
+				CreatedAt: pastChat.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			}
 			if pastChat.User == clientNm {
 				tmpMsg.Owner = true

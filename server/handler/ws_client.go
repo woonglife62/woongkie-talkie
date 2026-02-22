@@ -14,6 +14,7 @@ import (
 	mongodb "github.com/woonglife62/woongkie-talkie/pkg/mongoDB"
 	redisclient "github.com/woonglife62/woongkie-talkie/pkg/redis"
 	"github.com/woonglife62/woongkie-talkie/server/middleware"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/time/rate"
 )
 
@@ -281,6 +282,11 @@ func (c *Client) readPump() {
 
 		// Sanitize message content
 		msg.Message = html.EscapeString(msg.Message)
+
+		// Generate stable message ID and timestamp for the broadcast so clients
+		// receive consistent metadata immediately (before the async DB insert).
+		msg.MessageID = primitive.NewObjectID().Hex()
+		msg.CreatedAt = time.Now().Format("2006-01-02T15:04:05Z07:00")
 
 		if msg.Event == "MSG" {
 			chatMessage := mongodb.ChatMessage{

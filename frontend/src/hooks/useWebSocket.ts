@@ -61,6 +61,7 @@ export function useWebSocket(roomId: string | null, username: string | null) {
       }
 
       switch (data.Event) {
+        case 'CHATLOG':
         case 'MSG': {
           if (!data.User || data.message == null) break;
           const msg: Message = {
@@ -74,7 +75,9 @@ export function useWebSocket(roomId: string | null, username: string | null) {
             reply_to_user: data.reply_to_user,
           };
           addMessage(roomId, msg);
-          setTyping(roomId, data.User, false);
+          if (data.Event === 'MSG') {
+            setTyping(roomId, data.User, false);
+          }
           break;
         }
         case 'MSG_FILE': {
